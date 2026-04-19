@@ -32,10 +32,11 @@ switches all three flows to the custom artifact path automatically.
 **What it does:**
 
 1. Reads `cmake/llvm-hash.txt` to determine the MLIR source
-2. Calls `scripts/setup_mlir.py` to resolve and cache the MLIR installation:
+2. Runs `uv sync --extra test` to install Python test dependencies (venv must
+   exist before MLIR setup in case the wheel fallback needs to `pip install`)
+3. Calls `scripts/setup_mlir.py` to resolve and cache the MLIR installation:
    - Custom path: downloads the pinned LLVM artifact from GitHub Actions
    - Wheel fallback: installs `mlir_wheel` from the eudsl index
-3. Runs `uv sync --extra test` to install Python test dependencies
 4. Configures and builds KTIR with CMake
 5. Runs LIT tests (`check-ktir`)
 6. Builds and installs the Python wheel (`uv pip install .`)

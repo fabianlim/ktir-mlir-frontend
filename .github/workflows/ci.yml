@@ -81,6 +81,14 @@ jobs:
           fi
           echo "artifact-repo=${ARTIFACT_REPO}" >> $GITHUB_OUTPUT
 
+      # ── Install Python dependencies ──────────────────────────────────────────
+      # Run before Set up MLIR so the venv exists if the wheel fallback fires.
+
+      - name: Install Python deps
+        run: |
+          uv sync --no-install-project --extra test
+          echo "LIT=$(uv run --no-project which lit)" >> $GITHUB_ENV
+
       # ── Set up MLIR ─────────────────────────────────────────────────────────
       # setup_mlir.py handles all three flows:
       #   Flow 1/2 (custom artifact): reads cmake/llvm-hash.txt, downloads artifact,
@@ -106,13 +114,6 @@ jobs:
             $HASH_FLAG \
             --repo ${{ steps.config.outputs.artifact-repo }})
           echo "MLIR_DIR=${MLIR_DIR}" >> $GITHUB_ENV
-
-      # ── Install Python test dependencies ───────────────────────────────────
-
-      - name: Install Python deps
-        run: |
-          uv sync --no-install-project --extra test
-          echo "LIT=$(uv run --no-project which lit)" >> $GITHUB_ENV
 
       # ── Build ────────────────────────────────────────────────────────────────
 
