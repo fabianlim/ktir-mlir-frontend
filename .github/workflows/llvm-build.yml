@@ -176,8 +176,7 @@ jobs:
   refresh:
     name: Refresh artifact (${{ matrix.config.runner }})
     needs: get-hash
-    # if: ${{ needs.get-hash.outputs.llvm-hash != '' && github.event_name == 'schedule' }}
-    if: ${{ needs.get-hash.outputs.llvm-hash != ''}}
+    if: ${{ needs.get-hash.outputs.llvm-hash != '' && github.event_name == 'schedule' }}
     runs-on: ${{ matrix.config.runs-on }}
 
     strategy:
