@@ -2,8 +2,7 @@ name: LLVM Build
 
 on:
   schedule:
-    - cron: '0 2 1 */2 *'   # 1st of every other month — refreshes artifact
-                             # well within the 90-day retention window
+    - cron: '0 2 * * *'   # daily (temporary — revert to '0 2 1 */2 *' after testing)
   push:
     branches: [main]
     paths:
