@@ -8,6 +8,8 @@ Usage:
     MLIR_DIR=$(uv run python scripts/setup_mlir.py --wheel)
     MLIR_DIR=$(uv run python scripts/setup_mlir.py --repo owner/repo)
 
+After obtaining MLIR_DIR, run: uv sync
+
 Resolution order:
     1. --wheel flag       → install mlir_wheel, print its MLIR_DIR
     2. --hash / cmake/llvm-hash.txt → resolve artifact
@@ -29,6 +31,7 @@ import tarfile
 import tempfile
 import urllib.error
 import urllib.request
+import urllib.parse
 import zipfile
 
 
@@ -72,6 +75,7 @@ def install_mlir_wheel():
         [
             "uv", "pip", "install", "mlir_wheel",
             "--find-links", "https://llvm.github.io/eudsl",
+            "-v",
         ],
         check=True,
         stderr=sys.stderr,
@@ -108,9 +112,26 @@ def _mlir_dir_from_cache(artifact_name: str) -> str | None:
 # GitHub API helpers
 # ---------------------------------------------------------------------------
 
+class _PreservingHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        m = req.get_method()
+        if code in (301, 302, 303, 307, 308) and m in ("GET", "HEAD"):
+            old_host = urllib.parse.urlparse(req.full_url).hostname
+            new_host = urllib.parse.urlparse(newurl).hostname
+            if old_host == new_host:
+                newheaders = {k: v for k, v in req.headers.items() if k.lower() != 'content-length'}
+            else:
+                newheaders = {}
+            return urllib.request.Request(newurl,
+                                         headers=newheaders,
+                                         origin_req_host=req.origin_req_host,
+                                         unverifiable=req.unverifiable)
+        return None
+
+
 def _make_request(url: str, token: str) -> urllib.request.Request:
     req = urllib.request.Request(url)
-    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Authorization", f"token {token}")
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
     return req
@@ -126,6 +147,7 @@ def query_artifact_id(token: str, repo: str, artifact_name: str) -> int | None:
         with urllib.request.urlopen(_make_request(url, token)) as resp:
             data = json.loads(resp.read())
         artifacts = data.get("artifacts", [])
+        _err(f"API response: total_count={data.get('total_count')}, artifacts found={len(artifacts)}")
         if artifacts:
             return artifacts[0]["id"]
     except urllib.error.HTTPError as exc:
@@ -143,13 +165,30 @@ def download_and_cache(
         f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
     )
     _err(f"Downloading {artifact_name} from {repo}...")
+    _err(f"URL: {zip_url}")
+    _err(f"Token (first 20 chars): {token[:20]}...")
 
     with tempfile.TemporaryDirectory() as _tmp:
         tmp = pathlib.Path(_tmp)
         zip_path = tmp / "artifact.zip"
 
-        with urllib.request.urlopen(_make_request(zip_url, token)) as resp:
-            zip_path.write_bytes(resp.read())
+        req = _make_request(zip_url, token)
+        opener = urllib.request.build_opener(_PreservingHTTPRedirectHandler)
+        with opener.open(req) as resp:
+            total_size = int(resp.headers.get('content-length', 0))
+            downloaded = 0
+            chunk_size = 1024 * 1024
+            with open(zip_path, 'wb') as f:
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        pct = 100 * downloaded / total_size
+                        mb = downloaded / (1024 * 1024)
+                        _err(f"\rDownload progress: {pct:.1f}% ({mb:.1f}MB)", end="")
 
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(tmp)
@@ -159,6 +198,7 @@ def download_and_cache(
             raise RuntimeError("No .tar.gz found inside artifact zip")
         tar_path = tar_files[0]
 
+        _err()
         _err(f"Extracting {tar_path.name} to {_CACHE_BASE}/")
         with tarfile.open(tar_path) as tf:
             tf.extractall(_CACHE_BASE)
@@ -224,6 +264,7 @@ def main():
     # ── Path 1: forced wheel ────────────────────────────────────────────────
     if args.wheel:
         print(install_mlir_wheel())
+        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
         return
 
     # ── Path 2: resolve hash ────────────────────────────────────────────────
@@ -236,6 +277,7 @@ def main():
     if not llvm_hash:
         _err("No cmake/llvm-hash.txt found and no --hash given; falling back to mlir_wheel")
         print(install_mlir_wheel())
+        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
         return
 
     short_hash = llvm_hash[:8]
@@ -246,6 +288,7 @@ def main():
     cached = _mlir_dir_from_cache(artifact_name)
     if cached:
         _err(f"Cache hit: {cached}")
+        _err("✓ MLIR_DIR resolved. Next: run 'uv sync'")
         print(cached)
         return
 
@@ -254,6 +297,7 @@ def main():
     if not token:
         _err("No GIT_PAT or GITHUB_TOKEN found; falling back to mlir_wheel")
         print(install_mlir_wheel())
+        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
         return
 
     try:
@@ -261,22 +305,28 @@ def main():
     except RuntimeError as exc:
         _err(f"Repo resolution failed: {exc}; falling back to mlir_wheel")
         print(install_mlir_wheel())
+        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
         return
 
+    _err(f"Querying artifact {artifact_name} in {repo}...")
     artifact_id = query_artifact_id(token, repo, artifact_name)
+    _err(f"Got artifact_id: {artifact_id}")
     if artifact_id is None:
         _err(
             f"Artifact {artifact_name} not found in {repo}; falling back to mlir_wheel"
         )
         print(install_mlir_wheel())
+        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
         return
 
     try:
         mlir_dir = download_and_cache(token, repo, artifact_id, artifact_name)
+        _err("✓ MLIR_DIR resolved. Next: run 'uv sync'")
         print(mlir_dir)
     except Exception as exc:
         _err(f"Download/extract failed: {exc}; falling back to mlir_wheel")
         print(install_mlir_wheel())
+        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
 
 
 if __name__ == "__main__":
