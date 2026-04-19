@@ -35,8 +35,8 @@ switches all three flows to the custom artifact path automatically.
 2. Runs `uv sync --extra test` to install Python test dependencies (venv must
    exist before MLIR setup in case the wheel fallback needs to `pip install`)
 3. Calls `scripts/setup_mlir.py` to resolve and cache the MLIR installation:
-   - Custom path: downloads the pinned LLVM artifact from GitHub Actions
-   - Wheel fallback: installs `mlir_wheel` from the eudsl index
+   - Default: downloads the pinned LLVM artifact from GitHub Actions
+   - `--wheel`: installs `mlir_wheel` from the eudsl index (explicit opt-in only)
 4. Configures and builds KTIR with CMake
 5. Runs LIT tests (`check-ktir`)
 6. Builds and installs the Python wheel (`uv pip install .`)
@@ -120,10 +120,16 @@ gh workflow run ci.yml -f mlir-source=mlir_wheel
 
 ### Set up MLIR
 
-Use `scripts/setup_mlir.py` to obtain the same MLIR installation that CI uses.
-It reads `cmake/llvm-hash.txt`, checks a local cache, and downloads the
-artifact from GitHub if needed.  Falls back to `mlir_wheel` automatically if
-no token is available or the artifact is not found.
+There are two ways to obtain an MLIR installation for local builds:
+
+**Option A — Download the CI artifact (recommended)**
+
+`scripts/setup_mlir.py` downloads the pre-built LLVM artifact produced by
+Flow 2 (`llvm-build.yml`).  It reads `cmake/llvm-hash.txt`, checks a local
+cache, and pulls from GitHub Actions if needed.  If the artifact cannot be
+resolved (missing token, artifact not found, download failure), the script
+exits with a clear error explaining the cause.  Pass `--wheel` to explicitly
+opt in to `mlir_wheel` instead.
 
 ```bash
 # Cache hit (hash unchanged since last run) — no token needed:
@@ -139,10 +145,18 @@ GIT_PAT=<your-token> MLIR_DIR=$(uv run python scripts/setup_mlir.py --repo <fork
 MLIR_DIR=$(uv run python scripts/setup_mlir.py --wheel)
 ```
 
-Artifacts are cached at `~/.cache/ktir-mlir/<artifact-name>/` (e.g.
-`~/.cache/ktir-mlir/llvm-e9846648-ubuntu-x64/`).  Once cached, subsequent
-calls with the same hash return immediately with no network access and no
-token required.
+Artifacts are cached at `~/.cache/ktir-mlir/<artifact-name>/`.  Once cached,
+subsequent calls with the same hash return immediately with no network access
+and no token required.
+
+**Option B — Build MLIR manually**
+
+If you have built LLVM/MLIR from source yourself, skip the script entirely and
+set `MLIR_DIR` directly to the `lib/cmake/mlir` directory of your build:
+
+```bash
+MLIR_DIR=/path/to/your/llvm-build/lib/cmake/mlir
+```
 
 ### Build
 

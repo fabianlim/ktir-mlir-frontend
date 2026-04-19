@@ -275,10 +275,11 @@ def main():
             llvm_hash = hash_file.read_text().strip()
 
     if not llvm_hash:
-        _err("No cmake/llvm-hash.txt found and no --hash given; falling back to mlir_wheel")
-        print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
-        return
+        sys.exit(
+            "Error: no hash specified.\n"
+            "  cmake/llvm-hash.txt not found and --hash was not provided.\n"
+            "  To use mlir_wheel instead, pass --wheel."
+        )
 
     short_hash = llvm_hash[:8]
     os_name, arch = detect_os_arch()
@@ -295,38 +296,42 @@ def main():
     # ── Path 4: download from GitHub ────────────────────────────────────────
     token = os.environ.get("GIT_PAT") or os.environ.get("GITHUB_TOKEN")
     if not token:
-        _err("No GIT_PAT or GITHUB_TOKEN found; falling back to mlir_wheel")
-        print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
-        return
+        sys.exit(
+            f"Error: artifact '{artifact_name}' is not cached locally and no token is available.\n"
+            "  Set GIT_PAT or GITHUB_TOKEN to download it from GitHub Actions.\n"
+            "  To use mlir_wheel instead, pass --wheel."
+        )
 
     try:
         repo = resolve_repo(args.repo)
     except RuntimeError as exc:
-        _err(f"Repo resolution failed: {exc}; falling back to mlir_wheel")
-        print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
-        return
+        sys.exit(
+            f"Error: artifact '{artifact_name}' is not cached locally and the GitHub repo\n"
+            f"  could not be determined: {exc}\n"
+            "  Pass --repo <owner/repo> explicitly, or use --wheel to fall back to mlir_wheel."
+        )
 
     _err(f"Querying artifact {artifact_name} in {repo}...")
     artifact_id = query_artifact_id(token, repo, artifact_name)
     _err(f"Got artifact_id: {artifact_id}")
     if artifact_id is None:
-        _err(
-            f"Artifact {artifact_name} not found in {repo}; falling back to mlir_wheel"
+        sys.exit(
+            f"Error: artifact '{artifact_name}' not found in {repo}.\n"
+            "  The artifact may not have been built yet for this hash, or it may have expired\n"
+            "  (GitHub retains artifacts for 90 days). Trigger llvm-build.yml to rebuild it,\n"
+            "  or use --wheel to fall back to mlir_wheel."
         )
-        print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
-        return
 
     try:
         mlir_dir = download_and_cache(token, repo, artifact_id, artifact_name)
         _err("✓ MLIR_DIR resolved. Next: run 'uv sync'")
         print(mlir_dir)
     except Exception as exc:
-        _err(f"Download/extract failed: {exc}; falling back to mlir_wheel")
-        print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
+        sys.exit(
+            f"Error: failed to download or extract artifact '{artifact_name}': {exc}\n"
+            "  Check your token permissions and available disk space,\n"
+            "  or use --wheel to fall back to mlir_wheel."
+        )
 
 
 if __name__ == "__main__":

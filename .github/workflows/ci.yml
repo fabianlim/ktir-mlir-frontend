@@ -92,8 +92,8 @@ jobs:
       # ── Set up MLIR ─────────────────────────────────────────────────────────
       # setup_mlir.py handles all three flows:
       #   Flow 1/2 (custom artifact): reads cmake/llvm-hash.txt, downloads artifact,
-      #            falls back to mlir_wheel if artifact unavailable
-      #   Flow 3   (bleeding-edge):   --wheel forces mlir_wheel directly
+      #            exits with an error if artifact unavailable
+      #   Flow 3   (bleeding-edge):   --wheel installs mlir_wheel directly
 
       - name: Set up MLIR
         env:
