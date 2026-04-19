@@ -77,7 +77,8 @@ identical.
 2. Checks GitHub Actions artifacts — existing artifact found
 3. Downloads the artifact zip via the GitHub API
 4. Re-uploads it — a new artifact entry is created with a fresh 90-day clock
-5. Flow 1 is **not** triggered (artifact content unchanged)
+5. Deletes the old artifact to prevent stale duplicates accumulating in GitHub Actions
+6. Flow 1 is **not** triggered (artifact content unchanged)
 
 The 2-month schedule gives a ~30-day buffer before the previous upload
 expires, so there is always a valid artifact available for Flow 1.
