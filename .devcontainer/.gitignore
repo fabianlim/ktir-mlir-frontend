@@ -1,0 +1,3 @@
+# these get copied in for the dev-container build
+uv.lock
+pyproject.toml

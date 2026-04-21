@@ -1,0 +1,25 @@
+{
+    "name": "KTIR MLIR Frontend Dev Container",
+    "image": "ktir-frontend-ubuntu-22.04",
+    "initializeCommand": "bash .devcontainer/build_image.sh",
+    "dockerPath": "podman",
+    "runArgs": ["--userns=keep-id", "--name=ktir-frontend-dev"],
+    "extensions": [
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python"
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/code,type=bind",
+    "workspaceFolder": "/workspace/code",
+    "containerEnv": {
+        "HOME": "/workspace",
+        "UV_PROJECT_ENVIRONMENT": "/workspace/.venv"
+    },
+    "remoteEnv": {
+        "HOME": "/workspace"
+    },
+    "postCreateCommand": "uv sync --extra mlir && uv pip install -e ."
+}
