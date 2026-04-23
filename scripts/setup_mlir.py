@@ -262,7 +262,7 @@ def main():
     # ── Path 1: forced wheel ────────────────────────────────────────────────
     if args.wheel:
         print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv pip install .")
+        _err("✓ mlir_wheel installed. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv sync -v")
         return
 
     # ── Path 2: resolve hash ────────────────────────────────────────────────
@@ -287,7 +287,7 @@ def main():
     cached = _mlir_dir_from_cache(artifact_name)
     if cached:
         _err(f"Cache hit: {cached}")
-        _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv pip install .")
+        _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv sync -v")
         print(cached)
         return
 
@@ -322,7 +322,7 @@ def main():
 
     try:
         mlir_dir = download_and_cache(token, repo, artifact_id, artifact_name)
-        _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv pip install .")
+        _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv sync -v")
         print(mlir_dir)
     except Exception as exc:
         sys.exit(
