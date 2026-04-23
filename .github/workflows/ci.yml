@@ -51,9 +51,8 @@ jobs:
       matrix:
         config:
           - { runner: "Ubuntu 22.04 x64",   runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64"   }
-          # - { runner: "macOS 14 ARM64",      runs-on: "macos-14",         os: "macos",  arch: "arm64" }
-          # ubuntu-22.04-arm is a GitHub-hosted runner; requires Team or Enterprise plan
-          # - { runner: "Ubuntu 22.04 ARM64",  runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64" }
+          - { runner: "macOS 15 ARM64",      runs-on: "macos-15",         os: "macos",  arch: "arm64" }
+          - { runner: "Ubuntu 22.04 ARM64",  runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64" }
 
     steps:
       - uses: actions/checkout@v4
