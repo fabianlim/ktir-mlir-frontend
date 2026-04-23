@@ -95,6 +95,21 @@ jobs:
           path: llvm-project
           ref: ${{ needs.get-hash.outputs.llvm-hash }}
 
+      # Detect whether this commit is a stable release tag (llvmorg-*).
+      # git ls-remote checks the remote directly — no checkout or fetch-tags needed.
+      # Stable builds skip check-mlir and assertions; any regressions in ktir
+      # itself will surface in cmake-py-test.
+      - name: Detect stable build
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          LLVM_HASH="${{ needs.get-hash.outputs.llvm-hash }}"
+          if git ls-remote https://github.com/llvm/llvm-project 'refs/tags/llvmorg-*^{}' \
+               | grep -q "^${LLVM_HASH}"; then
+            echo "IS_STABLE_BUILD=true"  >> $GITHUB_ENV
+          else
+            echo "IS_STABLE_BUILD=false" >> $GITHUB_ENV
+          fi
+
       - name: Install uv
         if: steps.check.outputs.exists != 'true'
         uses: astral-sh/setup-uv@v5
@@ -102,7 +117,12 @@ jobs:
       - name: Install prerequisites
         if: steps.check.outputs.exists != 'true'
         run: |
-          uv sync --group llvm-build --no-install-project
+          # numpy<2 is only needed for check-mlir's Python tests; stable builds skip it
+          if [ "$IS_STABLE_BUILD" = "true" ]; then
+            uv sync --group llvm-build --no-install-project
+          else
+            uv sync --group llvm-build-nightly --no-install-project
+          fi
           echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
       - name: Enable sccache
@@ -113,20 +133,6 @@ jobs:
           key:          ${{ matrix.config.os }}-${{ matrix.config.arch }}-${{ needs.get-hash.outputs.llvm-short-hash }}
           restore-keys: ${{ matrix.config.os }}-${{ matrix.config.arch }}-
           save-always: true
-
-      # Detect whether the checkout is at a stable release tag (llvmorg-*).
-      # Stable builds skip check-mlir and assertions — the full test suite is
-      # unnecessary for a known-good tagged release; any regressions in ktir
-      # itself will surface in cmake-py-test.
-      - name: Detect stable build
-        if: steps.check.outputs.exists != 'true'
-        run: |
-          TAG=$(git -C llvm-project describe --tags --exact-match 2>/dev/null || true)
-          if echo "$TAG" | grep -q '^llvmorg-'; then
-            echo "IS_STABLE_BUILD=true"  >> $GITHUB_ENV
-          else
-            echo "IS_STABLE_BUILD=false" >> $GITHUB_ENV
-          fi
 
       # MLIR_ENABLE_BINDINGS_PYTHON=ON exports MLIRPythonSources.Core and related
       # cmake targets into the install tree. These are required by downstream
@@ -150,6 +156,8 @@ jobs:
             -DLLVM_ENABLE_TERMINFO=OFF
             -DLLVM_ENABLE_LIBXML2=OFF
             -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+            # Use uv-managed Python so MLIRDetectPythonEnv finds nanobind on all platforms
+            -DPython3_EXECUTABLE="$(uv python find)"
           )
           # lld is 2-4x faster than GNU ld for linking; leave empty on macOS (ld64 is fast on ARM64)
           [ -n "${{ matrix.config.linker }}" ] && CMAKE_ARGS+=( -DLLVM_USE_LINKER="${{ matrix.config.linker }}" )
