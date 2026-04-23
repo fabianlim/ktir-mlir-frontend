@@ -6,7 +6,7 @@ Prints MLIR_DIR to stdout; all other output goes to stderr.
 Usage:
     uv sync --no-install-project          # create venv + install deps
     MLIR_DIR=$(uv run --no-project python scripts/setup_mlir.py)
-    CMAKE_ARGS="-DMLIR_DIR=$MLIR_DIR" uv pip install . -v  # -v shows cmake/ninja output
+    CMAKE_ARGS="-DMLIR_DIR=$MLIR_DIR" uv sync -v           # -v shows cmake/ninja output
 
 Resolution order:
     1. --wheel flag       → install mlir_wheel, print its MLIR_DIR
