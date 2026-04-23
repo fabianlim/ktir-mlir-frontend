@@ -236,17 +236,30 @@ jobs:
       # and CMake config files (lib/cmake/mlir/MLIRConfig.cmake).
       # Tarball pattern: LLVM-{version}-{llvm-os}-{llvm-arch}.tar.xz
 
+      - name: Cache LLVM release
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: llvm-release
+          key: llvm-${{ env.LLVM_VERSION }}-${{ matrix.config.llvm-os }}-${{ matrix.config.llvm-arch }}
+
       - name: Download LLVM release
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
           TARBALL="LLVM-${{ env.LLVM_VERSION }}-${{ matrix.config.llvm-os }}-${{ matrix.config.llvm-arch }}.tar.xz"
           curl -L -o llvm.tar.xz \
             "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/${TARBALL}"
           mkdir -p llvm-release
           tar -xJf llvm.tar.xz -C llvm-release --strip-components=1
+
+      - name: Set LLVM paths
+        run: |
           echo "MLIR_DIR=$(pwd)/llvm-release/lib/cmake/mlir" >> $GITHUB_ENV
-          # Prepend LLVM bin so cmake picks up clang/clang++ from the tarball,
-          # not Apple Clang — avoids LTO bitcode version mismatch with ld64.
-          echo "$(pwd)/llvm-release/bin" >> $GITHUB_PATH
+          # Set CC/CXX explicitly — the tarball has clang/clang++ but no 'cc'/'c++'
+          # symlink, so cmake's compiler detection would otherwise fall back to
+          # Apple Clang (/usr/bin/c++), causing an LTO bitcode version mismatch.
+          echo "CC=$(pwd)/llvm-release/bin/clang"   >> $GITHUB_ENV
+          echo "CXX=$(pwd)/llvm-release/bin/clang++" >> $GITHUB_ENV
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
