@@ -4,11 +4,9 @@
 Prints MLIR_DIR to stdout; all other output goes to stderr.
 
 Usage:
-    MLIR_DIR=$(uv run python scripts/setup_mlir.py)
-    MLIR_DIR=$(uv run python scripts/setup_mlir.py --wheel)
-    MLIR_DIR=$(uv run python scripts/setup_mlir.py --repo owner/repo)
-
-After obtaining MLIR_DIR, run: uv sync
+    uv sync --no-install-project          # create venv + install deps
+    MLIR_DIR=$(uv run --no-project python scripts/setup_mlir.py)
+    CMAKE_ARGS="-DMLIR_DIR=$MLIR_DIR" uv pip install . -v  # -v shows cmake/ninja output
 
 Resolution order:
     1. --wheel flag       → install mlir_wheel, print its MLIR_DIR
@@ -201,7 +199,7 @@ def download_and_cache(
         _err()
         _err(f"Extracting {tar_path.name} to {_CACHE_BASE}/")
         with tarfile.open(tar_path) as tf:
-            tf.extractall(_CACHE_BASE)
+            tf.extractall(_CACHE_BASE, filter="data")
 
     mlir_dir = _CACHE_BASE / artifact_name / "lib" / "cmake" / "mlir"
     if not mlir_dir.is_dir():
@@ -264,7 +262,7 @@ def main():
     # ── Path 1: forced wheel ────────────────────────────────────────────────
     if args.wheel:
         print(install_mlir_wheel())
-        _err("✓ mlir_wheel installed. Next: run 'uv sync'")
+        _err("✓ mlir_wheel installed. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv pip install .")
         return
 
     # ── Path 2: resolve hash ────────────────────────────────────────────────
@@ -289,7 +287,7 @@ def main():
     cached = _mlir_dir_from_cache(artifact_name)
     if cached:
         _err(f"Cache hit: {cached}")
-        _err("✓ MLIR_DIR resolved. Next: run 'uv sync'")
+        _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv pip install .")
         print(cached)
         return
 
@@ -324,7 +322,7 @@ def main():
 
     try:
         mlir_dir = download_and_cache(token, repo, artifact_id, artifact_name)
-        _err("✓ MLIR_DIR resolved. Next: run 'uv sync'")
+        _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv pip install .")
         print(mlir_dir)
     except Exception as exc:
         sys.exit(

@@ -64,6 +64,11 @@ test = [
 llvm-build = [
     { name = "cmake" },
     { name = "ninja" },
+    { name = "sccache" },
+]
+llvm-build-nightly = [
+    { name = "cmake" },
+    { name = "ninja" },
     { name = "numpy" },
     { name = "sccache" },
 ]
@@ -78,6 +83,11 @@ provides-extras = ["test"]
 
 [package.metadata.requires-dev]
 llvm-build = [
+    { name = "cmake" },
+    { name = "ninja" },
+    { name = "sccache" },
+]
+llvm-build-nightly = [
     { name = "cmake" },
     { name = "ninja" },
     { name = "numpy", specifier = "<2" },
