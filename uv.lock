@@ -38,6 +38,15 @@ wheels = [
 ]
 
 [[package]]
+name = "filecheck"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/1c/10167ce597b4badb548cd8f70c7d8f36fdefafa41ba50e19f1a6a775708d/filecheck-1.0.3.tar.gz", hash = "sha256:ccb70500858e8f362f06d5c3e33c9c133785543ade50ddbeb9390681991f1b05", size = 20060, upload-time = "2025-08-19T10:00:06.256Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/40/69ca9ea803303e14301fff9d4931b6d080b9603e134df0419c55e9764df4/filecheck-1.0.3-py3-none-any.whl", hash = "sha256:1427d0e82d9c5209ec5cd9fb65745cae16d3003f800321f3c29f4b0729e68a19", size = 23943, upload-time = "2025-08-19T10:00:05.139Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -59,6 +68,7 @@ mlir = [
     { name = "mlir-wheel" },
 ]
 test = [
+    { name = "filecheck" },
     { name = "lit" },
     { name = "pytest" },
 ]
@@ -73,6 +83,7 @@ llvm-build = [
 
 [package.metadata]
 requires-dist = [
+    { name = "filecheck", marker = "extra == 'test'" },
     { name = "lit", marker = "extra == 'test'" },
     { name = "mlir-wheel", marker = "extra == 'mlir'" },
     { name = "nanobind", specifier = ">=2.12.0" },

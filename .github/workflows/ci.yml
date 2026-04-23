@@ -202,3 +202,110 @@ jobs:
 
       - name: Python test
         run: uv run --no-project pytest -v python/test/  # -v prints each test id and result
+
+  # ── CMake build + lit tests + Python wheel (stable LLVM, prebuilt packages) ─
+
+  cmake-py-test-stable:
+    name: cmake-py-test (stable) (${{ matrix.config.runner }})
+    runs-on: ${{ matrix.config.runs-on }}
+
+    env:
+      LLVM_VERSION: "22.1.0"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # - { runner: "Ubuntu 22.04 x64",   runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64",   llvm-os: "Linux", llvm-arch: "X64"   }
+          # - { runner: "Ubuntu 22.04 ARM64", runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64", llvm-os: "Linux", llvm-arch: "ARM64" }
+          - { runner: "macOS ARM64",        runs-on: "macos-15",          os: "macos",  arch: "arm64", llvm-os: "macOS", llvm-arch: "ARM64" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Install build tools ───────────────────────────────────────────────────
+      # cmake, ninja, and llvm (including FileCheck) are pre-installed on
+      # GitHub-hosted macOS-15 runners — no extra brew installs needed.
+      # Ubuntu runners would need: sudo apt-get install -y cmake ninja-build
+      # and a separate FileCheck source (e.g. apt.llvm.org).
+
+      # ── Download prebuilt LLVM + MLIR from llvm-project releases ─────────────
+      # Uses official LLVM release tarballs which include headers, static libs,
+      # and CMake config files (lib/cmake/mlir/MLIRConfig.cmake).
+      # Tarball pattern: LLVM-{version}-{llvm-os}-{llvm-arch}.tar.xz
+
+      - name: Restore LLVM cache
+        id: cache-llvm
+        uses: actions/cache/restore@v4
+        with:
+          path: llvm-release
+          key: llvm-${{ env.LLVM_VERSION }}-${{ matrix.config.llvm-os }}-${{ matrix.config.llvm-arch }}
+
+      - name: Download LLVM release
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          TARBALL="LLVM-${{ env.LLVM_VERSION }}-${{ matrix.config.llvm-os }}-${{ matrix.config.llvm-arch }}.tar.xz"
+          curl -L -o llvm.tar.xz \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/${TARBALL}"
+          mkdir -p llvm-release
+          tar -xJf llvm.tar.xz -C llvm-release --strip-components=1
+
+      - name: Save LLVM cache
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: llvm-release
+          key: llvm-${{ env.LLVM_VERSION }}-${{ matrix.config.llvm-os }}-${{ matrix.config.llvm-arch }}
+
+      - name: Set LLVM paths (macOS)
+        if: matrix.config.os == 'macos'
+        run: |
+          echo "MLIR_DIR=$(pwd)/llvm-release/lib/cmake/mlir" >> $GITHUB_ENV
+          # Set CC/CXX explicitly — the tarball has clang/clang++ but no 'cc'/'c++'
+          # symlink, so cmake's compiler detection would otherwise fall back to
+          # Apple Clang (/usr/bin/c++), causing an LTO bitcode version mismatch.
+          echo "CC=$(pwd)/llvm-release/bin/clang"    >> $GITHUB_ENV
+          echo "CXX=$(pwd)/llvm-release/bin/clang++" >> $GITHUB_ENV
+
+      # - name: Set LLVM paths (Ubuntu)
+      #   if: matrix.config.os == 'ubuntu'
+      #   run: |
+      #     echo "MLIR_DIR=/usr/lib/llvm-22/lib/cmake/mlir" >> $GITHUB_ENV
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --no-install-project --extra test
+
+      - name: Install FileCheck
+        # configure_lit_site_cfg() in AddLLVM.cmake unconditionally overwrites
+        # LLVM_TOOLS_DIR from LLVM_TOOLS_BINARY_DIR (set by LLVMConfig.cmake to
+        # llvm-release/bin), so -DLLVM_TOOLS_DIR has no effect. Symlink the
+        # filecheck pip binary into llvm-release/bin as 'FileCheck' so lit finds
+        # it. Explicit symlink name avoids case-sensitivity issues on Linux.
+        run: ln -sf "$(uv run --no-project which filecheck)" "$(pwd)/llvm-release/bin/FileCheck"
+
+      - name: Configure ktir
+        run: |
+          LIT=$(uv run --no-project which lit)
+          cmake -S . -B build -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DKTIR_ENABLE_PYTHON_BINDINGS=OFF \
+            -DMLIR_DIR=${{ env.MLIR_DIR }} \
+            -DLLVM_EXTERNAL_LIT=$LIT \
+            -DLLVM_LIT_ARGS="-v"
+
+      - name: Build ktir
+        run: |
+          JOBS=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+          cmake --build build -j$JOBS
+
+      - name: Test ktir
+        run: cmake --build build --target check-ktir
+
+      - name: Build and install Python wheel
+        run: CMAKE_ARGS="-DMLIR_DIR=${{ env.MLIR_DIR }}" uv pip install .
+
+      - name: Python test
+        run: uv run --no-project pytest -v python/test/
