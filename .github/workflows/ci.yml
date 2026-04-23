@@ -261,8 +261,6 @@ jobs:
         if: matrix.config.os == 'macos'
         run: |
           echo "MLIR_DIR=$(pwd)/llvm-release/lib/cmake/mlir" >> $GITHUB_ENV
-          # FileCheck comes from the runner's pre-installed Homebrew llvm.
-          echo "LLVM_TOOLS_DIR=$(brew --prefix llvm)/bin" >> $GITHUB_ENV
           # Set CC/CXX explicitly — the tarball has clang/clang++ but no 'cc'/'c++'
           # symlink, so cmake's compiler detection would otherwise fall back to
           # Apple Clang (/usr/bin/c++), causing an LTO bitcode version mismatch.
@@ -273,13 +271,20 @@ jobs:
       #   if: matrix.config.os == 'ubuntu'
       #   run: |
       #     echo "MLIR_DIR=/usr/lib/llvm-22/lib/cmake/mlir" >> $GITHUB_ENV
-      #     echo "LLVM_TOOLS_DIR=/usr/lib/llvm-22/bin"      >> $GITHUB_ENV
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: uv sync --no-install-project --extra test
+
+      - name: Install FileCheck
+        # configure_lit_site_cfg() in AddLLVM.cmake unconditionally overwrites
+        # LLVM_TOOLS_DIR from LLVM_TOOLS_BINARY_DIR (set by LLVMConfig.cmake to
+        # llvm-release/bin), so -DLLVM_TOOLS_DIR has no effect. Symlink the
+        # filecheck pip binary into llvm-release/bin as 'FileCheck' so lit finds
+        # it. Explicit symlink name avoids case-sensitivity issues on Linux.
+        run: ln -sf "$(uv run --no-project which filecheck)" "$(pwd)/llvm-release/bin/FileCheck"
 
       - name: Configure ktir
         run: |
@@ -288,7 +293,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DKTIR_ENABLE_PYTHON_BINDINGS=OFF \
             -DMLIR_DIR=${{ env.MLIR_DIR }} \
-            -DLLVM_TOOLS_DIR=${{ env.LLVM_TOOLS_DIR }} \
             -DLLVM_EXTERNAL_LIT=$LIT \
             -DLLVM_LIT_ARGS="-v"
 
