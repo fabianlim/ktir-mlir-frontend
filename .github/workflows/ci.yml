@@ -244,6 +244,9 @@ jobs:
           mkdir -p llvm-release
           tar -xJf llvm.tar.xz -C llvm-release --strip-components=1
           echo "MLIR_DIR=$(pwd)/llvm-release/lib/cmake/mlir" >> $GITHUB_ENV
+          # Prepend LLVM bin so cmake picks up clang/clang++ from the tarball,
+          # not Apple Clang — avoids LTO bitcode version mismatch with ld64.
+          echo "$(pwd)/llvm-release/bin" >> $GITHUB_PATH
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
