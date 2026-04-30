@@ -294,6 +294,18 @@ def main():
     artifact_name = f"llvm-{short_hash}-{os_name}-{arch}"
 
     # ── Path 3: cache hit ───────────────────────────────────────────────────
+    # No locking needed: GitHub Actions runners are isolated per job, and local
+    # dev is single-user, so concurrent writes to _CACHE_BASE are not a concern.
+    #
+    # If concurrent access ever becomes a concern (e.g. shared NFS cache across
+    # runners), the safe pattern is:
+    #   1. Check cache (no lock) — fast path, avoids lock on every hit.
+    #   2. Download to tempfile.TemporaryDirectory() — parallel-safe, each
+    #      caller gets its own tmpdir.
+    #   3. Acquire fcntl.LOCK_EX on _CACHE_BASE/<artifact>.lock
+    #   4. Re-check cache inside the lock — a racing job may have populated it.
+    #   5. If still a miss: tf.extractall(_CACHE_BASE, ...) — only one writer.
+    #   6. Release lock.
     cached = _mlir_dir_from_cache(artifact_name)
     if cached:
         _err(f"Cache hit: {cached}")
