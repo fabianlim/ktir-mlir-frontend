@@ -167,7 +167,6 @@ def download_and_cache(
     )
     _err(f"Downloading {artifact_name} from {repo}...")
     _err(f"URL: {zip_url}")
-    _err(f"Token (first 8 chars): {token[:8]}...")
 
     with tempfile.TemporaryDirectory() as _tmp:
         tmp = pathlib.Path(_tmp)
