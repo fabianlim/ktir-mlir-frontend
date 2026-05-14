@@ -126,6 +126,57 @@ def Ktdp_SpyreMemorySpaceAttr
 //   - Other RFC primitives (`broadcast` C1, `all_gather` C2,
 //     `all_to_all` X1) belong in their own ops per the RFC's
 //     hybrid resolution, not as new entries here.
+//
+// Design note — AttrInterface adoption (deferred, by convention).
+//
+//   `SpyreMemorySpaceAttr` above adopts an abstract base interface
+//   `Ktdp_MemorySpaceAttr` (an `AttrInterface`) that has no methods
+//   yet — it exists so future concrete memory-space attrs (other
+//   targets) can be grouped under a common umbrella. Per the comment
+//   on that interface, the convention in this file is to introduce
+//   such an interface only once a *second* concrete implementation
+//   exists and the shared API has become clear. With only a single
+//   concrete reduce-mode attr today (`ReduceModeAttr`), adding an
+//   interface now would be premature by that same standard.
+//
+//   The most likely trigger is `reduce_scatter`: if it ends up
+//   carrying parameters that don't fit the existing `ReduceModeAttr`
+//   shape (e.g. a tensor `axis` plus core-rank info), it'll arrive as
+//   a sibling concrete attr rather than a new enum case, and the
+//   common interface follows. Sketch of how that would look:
+//
+//     // New abstract base (no methods until both concrete impls
+//     // exist and shared API is clear).
+//     def Ktdp_ReduceModeIface : AttrInterface<"KtdpReduceModeAttr"> {
+//       let cppNamespace = "::mlir::ktdp";
+//       let description = [{
+//         Abstract base interface for all `ktdp.reduce` result-placement
+//         attributes (where the reduced value lands).
+//       }];
+//       let methods = [];   // TODO: shared queries when API is clear.
+//     }
+//
+//     // Existing all_reduce / reduce_to_core become an impl of it:
+//     def Ktdp_ReduceModeAttr
+//         : AttrDef<Ktdp_Dialect, "ReduceMode",
+//                   [DeclareAttrInterfaceMethods<Ktdp_ReduceModeIface>]> {
+//       /* unchanged */
+//     }
+//
+//     // New sibling for F3 scatter:
+//     def Ktdp_ReduceScatterModeAttr
+//         : AttrDef<Ktdp_Dialect, "ReduceScatterMode",
+//                   [DeclareAttrInterfaceMethods<Ktdp_ReduceModeIface>]> {
+//       let mnemonic = "reduce_scatter_mode";
+//       let parameters = (ins "int32_t":$axis);
+//       let assemblyFormat = "`<` `axis` `=` $axis `>`";
+//     }
+//
+//   `ReduceKindAttr` is unlikely to ever need an interface — its
+//   future entries (`max`, `min`, …) differ only in the enum value,
+//   not in attr shape, so they all stay inside the single
+//   `ReduceKindAttr` parametric on `ReduceKind`. `GridAxisAttr` is a
+//   leaf concept (a single int) with no foreseeable siblings.
 
 // ReduceKindAttr: a parametric AttrDef wrapping the ReduceKind enum.
 // Modeled as an AttrDef (not EnumAttr) so the attribute is owned by
