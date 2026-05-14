@@ -45,6 +45,9 @@ void KtdpDialect::initialize() {
     RuntimeArgType
   >();
   addAttributes<
-    SpyreMemorySpaceAttr
+    SpyreMemorySpaceAttr,
+    ReduceKindAttr,
+    ReduceModeAttr,
+    GridAxisAttr
   >();
 }
