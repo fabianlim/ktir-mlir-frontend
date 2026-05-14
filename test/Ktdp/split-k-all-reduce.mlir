@@ -12,6 +12,33 @@
 // Smallest complete all_reduce kernel: every core participates, every
 // core ends with the replicated full sum, and every core stores a
 // unique row-block (no writer guard).
+//
+// Picture (drawn at N = 4 cores for clarity; the kernel below uses
+// N = 32). Each core c owns a TILE-wide K-slice of A and one B-shard.
+// After all_reduce, every core holds the full [M_FULL, W] product;
+// each then extracts a unique row-block of C and stores it.
+//
+//   A  [N·TILE, N·TILE]                  B [N·TILE, W]   C [N·TILE, W]
+//   ┌──────┬──────┬──────┬──────┐        ┌──────┐        ┌──────┐
+//   │ A0,0 │ A0,1 │ A0,2 │ A0,3 │        │ B_0  │◄ c=0   │ C_0  │◄ c=0
+//   ├──────┼──────┼──────┼──────┤        ├──────┤        ├──────┤
+//   │ A1,0 │ A1,1 │ A1,2 │ A1,3 │        │ B_1  │◄ c=1   │ C_1  │◄ c=1
+//   ├──────┼──────┼──────┼──────┤        ├──────┤        ├──────┤
+//   │ A2,0 │ A2,1 │ A2,2 │ A2,3 │        │ B_2  │◄ c=2   │ C_2  │◄ c=2
+//   ├──────┼──────┼──────┼──────┤        ├──────┤        ├──────┤
+//   │ A3,0 │ A3,1 │ A3,2 │ A3,3 │        │ B_3  │◄ c=3   │ C_3  │◄ c=3
+//   └──────┴──────┴──────┴──────┘        └──────┘        └──────┘
+//             ▲                                            ▲
+//             │ each core c reads the full K-column
+//             │ A[:, c·TILE : (c+1)·TILE]
+//             │
+//   per-core flow (one core c):
+//     a_data = A[:, c·TILE..(c+1)·TILE]   (shape [M_FULL, TILE])
+//     b_data = B_c                        (shape [TILE, W])
+//     psum   = a_data @ b_data            (local, contracts c's TILE)
+//     full   = all_reduce(sum, axis=0) psum   (every core holds full)
+//     C_c    = full[c·TILE:(c+1)·TILE, :] (each core's unique row-block)
+//     store C_c -> C[c·TILE.., :]         (32 disjoint HBM writes)
 
 #a_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 1023 >= 0, d1 >= 0, -d1 + 1023 >= 0)>
 #b_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 31   >= 0, d1 >= 0, -d1 + 31   >= 0)>
@@ -20,13 +47,17 @@
 #shard_acc = affine_set<(d0, d1) : (d0 >= 0, -d0 + 31   >= 0, d1 >= 0, -d1 + 31   >= 0)>
 #identity  = affine_map<(d0, d1) -> (d0, d1)>
 
-// CHECK-LABEL: func.func @split_k_simple_f1
+// CHECK-LABEL: func.func @split_k_all_reduce
 // CHECK: ktdp.reduce
 // CHECK-SAME: across = #ktdp.grid_axis<0>
 // CHECK-SAME: kind = #ktdp.reduce_kind<sum>
 // CHECK-SAME: mode = #ktdp.reduce_mode<all_reduce>
 // CHECK-SAME: tensor<1024x32xf16> -> tensor<1024x32xf16>
-func.func @split_k_simple_f1(
+// Distinguishing pattern for all_reduce form: extract a per-core slice,
+// then store it (no writer guard) — every core writes a unique block.
+// CHECK: tensor.extract_slice
+// CHECK: ktdp.store
+func.func @split_k_all_reduce(
     %a_ptr: index,
     %b_ptr: index,
     %c_ptr: index

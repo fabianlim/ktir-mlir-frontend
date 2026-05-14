@@ -136,8 +136,10 @@ def KTDP_ReduceOp : Ktdp_Op<"reduce", [
     The `mode` attribute selects result placement:
     - `all_reduce` — result replicated on every core in the
       reduction group.
-    - `reduce_to_core<N>` — result on core rank N only; on other
-      cores the result value is unspecified / poison.
+    - `reduce_to_core<N>` — result on the core whose rank *within
+      the group named by `across`* is `N`; on other cores the result
+      value is unspecified / poison. `N` is a group-rank, not a
+      global core ID.
 
     **Support model.** The verifier validates *structure only* (arity,
     types, region terminator, attribute consistency). It does not

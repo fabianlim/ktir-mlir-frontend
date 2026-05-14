@@ -190,9 +190,16 @@ def Ktdp_ReduceModeAttr
     Variants:
     - `all_reduce` -- result is replicated on every core in the
       reduction group.
-    - `reduce_to_core<N>` -- result is materialized only on core
-      rank `N` within the group; on other cores the result value is
-      unspecified / poison.
+    - `reduce_to_core<N>` -- result is materialized only on the core
+      whose rank within the reduction group is `N`; on other cores
+      the result value is unspecified / poison.
+
+    The `N` in `reduce_to_core<N>` is rank *within the group named by
+    the op's `across` attribute*, not a global core ID. With
+    `grid = [4, 8]` and `across = grid_axis<1>`, there are 4
+    independent reduction groups (one per `pid_row`); `reduce_to_core<0>`
+    means "rank 0 within each group" — 4 different writers globally,
+    one per group.
 
     Examples:
     ```mlir

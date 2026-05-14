@@ -2,12 +2,43 @@
 
 // Split-K matmul, reduce_to_core form. Smallest kernel that
 // exercises `mode = reduce_to_core<0>`: every core contributes a
-// partial, only core 0 ends up holding the full sum, and only core 0
-// stores to HBM C — guarded by `scf.if pid_k == 0`.
+// partial, only the rank-0 core within the reduction group (here
+// `pid_k == 0`, since `across = grid_axis<0>` and the grid is 1-D)
+// ends up holding the full sum, and only that core stores to HBM C —
+// guarded by `scf.if pid_k == 0`.
 //
-// Shapes mirror the simple all_reduce example (1-D grid, 32 cores
-// along K). Output C is now [32, 32] (one tile, written once) instead
-// of [1024, 32] (32 row-blocks, written by all cores).
+// Output C is [32, 32] (one tile, written once by core 0) instead of
+// [1024, 32] / 32 row-blocks as in the all_reduce variant.
+//
+// Picture (drawn at N = 4 cores for clarity; the kernel below uses
+// N = 32). Each core's psum is [32, 32] over its own K-slice. The
+// reduce lands the sum on core 0 only; cores 1..N-1 hold poison and
+// must not read it. Only core 0 stores to HBM.
+//
+//                 A  [TILE, N·TILE]                B  [N·TILE, W]
+//                 ┌─────┬─────┬─────┬─────┐        ┌─────┐
+//   row 0..TILE   │A_0  │A_1  │A_2  │A_3  │        │ B_0 │◄ c=0
+//                 └─────┴─────┴─────┴─────┘        ├─────┤
+//                  c=0   c=1   c=2   c=3           │ B_1 │◄ c=1
+//                                                  ├─────┤
+//                                                  │ B_2 │◄ c=2
+//                                                  ├─────┤
+//                                                  │ B_3 │◄ c=3
+//                                                  └─────┘
+//
+//   per-core flow (core c):
+//     a_data = A[:, c·TILE..(c+1)·TILE]   (shape [TILE, TILE])
+//     b_data = B_c                        (shape [TILE, W])
+//     psum   = a_data @ b_data            (local, [TILE, W])
+//     full   = reduce_to_core<0>(sum) psum    on c==0: full sum
+//                                             on c!=0: poison (don't read)
+//
+//                                                C  [TILE, W]
+//     scf.if pid_k == 0 {                        ┌─────┐
+//        store full -> C                         │  C  │◄ written by c=0
+//     }                                          └─────┘
+//                                                only one writer; cores
+//                                                1..N-1 do nothing
 
 #a_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 1023 >= 0, d1 >= 0, -d1 + 1023 >= 0)>
 #b_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 31   >= 0, d1 >= 0, -d1 + 31   >= 0)>
@@ -15,14 +46,17 @@
 #a_acc     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 31   >= 0, d1 >= 0, -d1 + 31   >= 0)>
 #identity  = affine_map<(d0, d1) -> (d0, d1)>
 
-// CHECK-LABEL: func.func @split_k_f2_writer_guard
+// CHECK-LABEL: func.func @split_k_reduce_to_core
 // CHECK: ktdp.reduce
 // CHECK-SAME: across = #ktdp.grid_axis<0>
 // CHECK-SAME: kind = #ktdp.reduce_kind<sum>
 // CHECK-SAME: mode = #ktdp.reduce_mode<reduce_to_core<0>>
+// Distinguishing pattern for reduce_to_core form: arith.cmpi defines the
+// writer predicate, scf.if guards the store on the rank-0 core.
+// CHECK: arith.cmpi eq
 // CHECK: scf.if
 // CHECK: ktdp.store
-func.func @split_k_f2_writer_guard(
+func.func @split_k_reduce_to_core(
     %a_ptr: index,
     %b_ptr: index,
     %c_ptr: index
