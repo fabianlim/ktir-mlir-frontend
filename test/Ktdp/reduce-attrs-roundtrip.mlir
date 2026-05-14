@@ -1,6 +1,6 @@
 // RUN: ktir-opt "%s" | ktir-opt | FileCheck "%s"
 
-// Round-trip the new reduce-related attributes (Style A) on
+// Round-trip the new reduce-related attributes on
 // func.func arg/return positions, parallel to attrs-roundtrip.mlir.
 
 // -----

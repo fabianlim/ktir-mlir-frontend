@@ -74,21 +74,16 @@ def KTDP_RegionTerminatorOp : Ktdp_Op<"region_terminator", [Terminator]> {
 }
 
 //===----------------------------------------------------------------------===//
-// Cross-core reduce (Style A) — RFC_reduce_api.md
+// Cross-core reduce
 //===----------------------------------------------------------------------===//
 //
-// First cut: just enough surface for the split-K reduce-sum example.
+// First cut: just enough surface for the split-K reduce-sum kernel.
 //
-// Modes implemented: F1 (`all_reduce`) and F2 (`reduce_to_core<N>`).
-// F3 `reduce_scatter` is deferred — its mode entry and `axis`
-// parameter will land in `reduce_mode` later. Multi-input region
-// combiners (F5 online-softmax-combine) are also deferred; the
-// verifier currently rejects more than one input.
+// Modes implemented: `all_reduce` (replicated result) and
+// `reduce_to_core<N>` (result on core rank N only).
 //
-// Other RFC primitives (`broadcast` C1, `all_gather` C2, `all_to_all`
-// X1) are intentionally NOT folded into `kind`. Per the RFC's hybrid
-// resolution they belong in their own ops, not as new `reduce_kind`
-// entries.
+// Multi-input region combiners are not supported in this cut; the
+// verifier rejects more than one input.
 
 def KTDP_YieldOp : Ktdp_Op<"yield", [
     Pure, Terminator, ReturnLike, HasParent<"ReduceOp">
@@ -113,7 +108,7 @@ def KTDP_ReduceOp : Ktdp_Op<"reduce", [
     RecursiveMemoryEffects,
     SingleBlockImplicitTerminator<"ktdp::YieldOp">
   ]> {
-  let summary = "Cross-core reduction across a grid axis (Style A).";
+  let summary = "Cross-core reduction across a grid axis.";
   let description = [{
     Cross-core reduction over the grid axis named by `across`.
 
@@ -139,9 +134,10 @@ def KTDP_ReduceOp : Ktdp_Op<"reduce", [
       ```
 
     The `mode` attribute selects result placement:
-    - `all_reduce` — result replicated on every core (F1).
-    - `reduce_to_core<N>` — result on core N only; result on other
-      cores is unspecified / poison (F2).
+    - `all_reduce` — result replicated on every core in the
+      reduction group.
+    - `reduce_to_core<N>` — result on core rank N only; on other
+      cores the result value is unspecified / poison.
 
     **Support model.** The verifier validates *structure only* (arity,
     types, region terminator, attribute consistency). It does not
@@ -151,10 +147,9 @@ def KTDP_ReduceOp : Ktdp_Op<"reduce", [
     not a capability list — absence of an entry from `reduce_kind` is
     not a claim that the region form will not work for that combiner.
 
-    TODO: F5 multi-input region combiners (e.g. online-softmax-combine
-    over `(m, l, acc)`) are currently rejected. When added, lift the
-    `inputs.size() == 1` restriction and adjust the block-argument
-    arity check accordingly.
+    TODO: multi-input region combiners are currently rejected. When
+    added, lift the `inputs.size() == 1` restriction and adjust the
+    block-argument arity check accordingly.
   }];
 
   let arguments = (ins

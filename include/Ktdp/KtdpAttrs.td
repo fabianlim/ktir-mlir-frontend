@@ -100,32 +100,24 @@ def Ktdp_SpyreMemorySpaceAttr
 }
 
 //===----------------------------------------------------------------------===//
-// Reduce-related attributes (Style A from RFC_reduce_api.md)
+// Reduce-related attributes for ktdp.reduce
 //===----------------------------------------------------------------------===//
 //
-// First cut: just enough surface for the split-K reduce-sum example.
+// First cut: just enough surface for the split-K reduce-sum kernel.
 //
 //   - ReduceKindAttr  : enum of recognized combiner shorthands. Today
 //                       only `sum`. The enum is a *frontend ergonomics*
 //                       knob, NOT a capability claim — the region form
 //                       on `ktdp.reduce` accepts any combiner body.
 //
-//   - ReduceModeAttr  : where the result lands. Parametric so that
-//                       `reduce_to_core<N>` carries its destination
-//                       core inline. Today: `all_reduce` (F1) and
-//                       `reduce_to_core<N>` (F2).
+//   - ReduceModeAttr  : where the result lands. Today: `all_reduce`
+//                       (replicated) and `reduce_to_core<N>` (only on
+//                       core rank N). Parametric so `reduce_to_core<N>`
+//                       carries its destination core inline.
 //
 //   - GridAxisAttr    : which grid axis the reduction collapses,
-//                       indexed into the kernel's `grid = [...]`
-//                       func attribute (treated as opaque here).
-//
-// TODO (deferred extensions):
-//   - ReduceModeKind: add `reduce_scatter` (F3) — carries an `axis`
-//     parameter naming the tensor dimension to scatter along.
-//   - ReduceKind: add `max`, `min`, etc. as recognized shorthands.
-//   - Other RFC primitives (`broadcast` C1, `all_gather` C2,
-//     `all_to_all` X1) belong in their own ops per the RFC's
-//     hybrid resolution, not as new entries here.
+//                       indexed into the kernel's `grid = [...]` func
+//                       attribute (treated as opaque here).
 //
 // Design note — AttrInterface adoption (deferred, by convention).
 //
@@ -138,54 +130,15 @@ def Ktdp_SpyreMemorySpaceAttr
 //   exists and the shared API has become clear. With only a single
 //   concrete reduce-mode attr today (`ReduceModeAttr`), adding an
 //   interface now would be premature by that same standard.
-//
-//   The most likely trigger is `reduce_scatter`: if it ends up
-//   carrying parameters that don't fit the existing `ReduceModeAttr`
-//   shape (e.g. a tensor `axis` plus core-rank info), it'll arrive as
-//   a sibling concrete attr rather than a new enum case, and the
-//   common interface follows. Sketch of how that would look:
-//
-//     // New abstract base (no methods until both concrete impls
-//     // exist and shared API is clear).
-//     def Ktdp_ReduceModeIface : AttrInterface<"KtdpReduceModeAttr"> {
-//       let cppNamespace = "::mlir::ktdp";
-//       let description = [{
-//         Abstract base interface for all `ktdp.reduce` result-placement
-//         attributes (where the reduced value lands).
-//       }];
-//       let methods = [];   // TODO: shared queries when API is clear.
-//     }
-//
-//     // Existing all_reduce / reduce_to_core become an impl of it:
-//     def Ktdp_ReduceModeAttr
-//         : AttrDef<Ktdp_Dialect, "ReduceMode",
-//                   [DeclareAttrInterfaceMethods<Ktdp_ReduceModeIface>]> {
-//       /* unchanged */
-//     }
-//
-//     // New sibling for F3 scatter:
-//     def Ktdp_ReduceScatterModeAttr
-//         : AttrDef<Ktdp_Dialect, "ReduceScatterMode",
-//                   [DeclareAttrInterfaceMethods<Ktdp_ReduceModeIface>]> {
-//       let mnemonic = "reduce_scatter_mode";
-//       let parameters = (ins "int32_t":$axis);
-//       let assemblyFormat = "`<` `axis` `=` $axis `>`";
-//     }
-//
-//   `ReduceKindAttr` is unlikely to ever need an interface — its
-//   future entries (`max`, `min`, …) differ only in the enum value,
-//   not in attr shape, so they all stay inside the single
-//   `ReduceKindAttr` parametric on `ReduceKind`. `GridAxisAttr` is a
-//   leaf concept (a single int) with no foreseeable siblings.
 
 // ReduceKindAttr: a parametric AttrDef wrapping the ReduceKind enum.
 // Modeled as an AttrDef (not EnumAttr) so the attribute is owned by
 // the ktdp dialect and parses with the `#ktdp.reduce_kind<...>`
-// syntax expected by the RFC. The set of entries is *frontend
-// ergonomics*, not a list of supported reductions: the region form
-// on `ktdp.reduce` accepts arbitrary combiner bodies regardless of
-// what is enumerated here. Whether a particular body lowers to a
-// hardware collective is a lowering-pass concern.
+// syntax. The set of entries is *frontend ergonomics*, not a list of
+// supported reductions: the region form on `ktdp.reduce` accepts
+// arbitrary combiner bodies regardless of what is enumerated here.
+// Whether a particular body lowers to a hardware collective is a
+// lowering-pass concern.
 def Ktdp_ReduceKind : I32EnumAttr<
     "ReduceKind",
     "Recognized combiner-shorthand kinds for ktdp.reduce",
@@ -221,7 +174,6 @@ def Ktdp_ReduceModeKind : I32EnumAttr<
     [
       I32EnumAttrCase<"all_reduce",     0, "all_reduce">,
       I32EnumAttrCase<"reduce_to_core", 1, "reduce_to_core">
-      // TODO: reduce_scatter — needs an `axis` parameter on the attr.
     ]> {
   let cppNamespace = "::mlir::ktdp";
   let genSpecializedAttr = 0;
@@ -230,17 +182,17 @@ def Ktdp_ReduceModeKind : I32EnumAttr<
 def Ktdp_ReduceModeAttr
     : AttrDef<Ktdp_Dialect, "ReduceMode"> {
   let mnemonic = "reduce_mode";
-  let summary = "Result-placement mode for ktdp.reduce (Style A)";
+  let summary = "Result-placement mode for ktdp.reduce";
   let description = [{
     Describes where the reduced value lands relative to the
     participating cores.
 
     Variants:
     - `all_reduce` -- result is replicated on every core in the
-      reduction group (F1).
+      reduction group.
     - `reduce_to_core<N>` -- result is materialized only on core
       rank `N` within the group; on other cores the result value is
-      unspecified / poison (F2).
+      unspecified / poison.
 
     Examples:
     ```mlir

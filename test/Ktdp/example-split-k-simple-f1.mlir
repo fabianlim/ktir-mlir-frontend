@@ -1,18 +1,17 @@
 // RUN: ktir-opt "%s" | ktir-opt | FileCheck "%s"
 
-// Split-K matmul, 1-D grid F1 form. Mirrors Appendix 1 of
-// RFC_reduce_api.md ("Simple Split-K (1-D grid, pure F1)"):
+// Split-K matmul, 1-D grid, all_reduce form.
 //
 //   - 32-core 1-D grid, axis 0 distributes the K dimension.
 //   - A is [1024, 1024] (HBM), B per-core shard is [32, 32] (HBM),
 //     C is [1024, 32] (HBM).
 //   - Each core: load its K-column-range of A, load its B-shard,
-//     local matmul -> [1024, 32] partial, F1 all_reduce(sum) across
+//     local matmul -> [1024, 32] partial, all_reduce(sum) across
 //     grid axis 0, extract its 32-row block, store to C.
 //
-// This is the smallest complete F1 kernel: every core participates,
-// every core ends with the replicated full sum, and every core
-// stores a unique row-block (no writer guard).
+// Smallest complete all_reduce kernel: every core participates, every
+// core ends with the replicated full sum, and every core stores a
+// unique row-block (no writer guard).
 
 #a_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 1023 >= 0, d1 >= 0, -d1 + 1023 >= 0)>
 #b_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 31   >= 0, d1 >= 0, -d1 + 31   >= 0)>
@@ -87,8 +86,8 @@ func.func @split_k_simple_f1(
             outs(%c_init : tensor<1024x32xf16>)
           -> tensor<1024x32xf16>
 
-  // ---------- F1 all_reduce(sum) across grid_axis<0> ----------
-  // Style A: kind = sum (sugar form), mode = all_reduce.
+  // ---------- all_reduce(sum) across grid_axis<0> ----------
+  // Sugar form: kind = sum, mode = all_reduce.
   %full = ktdp.reduce %psum {
     kind   = #ktdp.reduce_kind<sum>,
     mode   = #ktdp.reduce_mode<all_reduce>,

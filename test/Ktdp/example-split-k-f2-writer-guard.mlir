@@ -1,15 +1,13 @@
 // RUN: ktir-opt "%s" | ktir-opt | FileCheck "%s"
 
-// Split-K matmul, F2 form. Smallest kernel that exercises
-// `mode = reduce_to_core<0>`: every core contributes a partial,
-// only core 0 ends up holding the full sum, and only core 0 stores
-// to HBM C — guarded by `scf.if pid_k == 0`.
+// Split-K matmul, reduce_to_core form. Smallest kernel that
+// exercises `mode = reduce_to_core<0>`: every core contributes a
+// partial, only core 0 ends up holding the full sum, and only core 0
+// stores to HBM C — guarded by `scf.if pid_k == 0`.
 //
-// Shapes mirror the simple-F1 example (1-D grid, 32 cores along
-// K), so the structure side-by-side is exactly the F1 vs F2
-// contrast called out in RFC_reduce_api.md §"F1 variant —
-// replicated output". Output C is now [32, 32] (one tile, written
-// once) instead of [1024, 32] (32 row-blocks, written by all cores).
+// Shapes mirror the simple all_reduce example (1-D grid, 32 cores
+// along K). Output C is now [32, 32] (one tile, written once) instead
+// of [1024, 32] (32 row-blocks, written by all cores).
 
 #a_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 1023 >= 0, d1 >= 0, -d1 + 1023 >= 0)>
 #b_set     = affine_set<(d0, d1) : (d0 >= 0, -d0 + 31   >= 0, d1 >= 0, -d1 + 31   >= 0)>
@@ -85,7 +83,7 @@ func.func @split_k_f2_writer_guard(
             outs(%c_init : tensor<32x32xf16>)
           -> tensor<32x32xf16>
 
-  // ---------- F2 reduce_to_core<0> across grid_axis<0> ----------
+  // ---------- reduce_to_core<0> across grid_axis<0> ----------
   // Result is materialized only on core 0; on other cores `%full`
   // is unspecified / poison.
   %full = ktdp.reduce %psum {

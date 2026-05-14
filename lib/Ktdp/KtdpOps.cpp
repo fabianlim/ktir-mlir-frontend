@@ -1228,11 +1228,11 @@ LogicalResult ReduceOp::verify() {
   auto results = getResults();
   Region &combiner = getCombiner();
 
-  // Single-input restriction (F5 multi-input combiner is deferred).
+  // Single-input restriction (multi-input combiners are deferred).
   if (inputs.size() != 1)
     return emitOpError(
         "first cut supports exactly one input; multi-input region "
-        "combiners (F5) are not yet implemented");
+        "combiners are not yet implemented");
 
   // Result types must match input types pairwise.
   if (inputs.size() != results.size())
