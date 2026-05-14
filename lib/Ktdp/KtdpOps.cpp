@@ -1220,6 +1220,166 @@ LogicalResult RuntimeArgExtractOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ReduceOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ReduceOp::verify() {
+  auto inputs = getInputs();
+  auto results = getResults();
+  Region &combiner = getCombiner();
+
+  // Single-input restriction (F5 multi-input combiner is deferred).
+  if (inputs.size() != 1)
+    return emitOpError(
+        "first cut supports exactly one input; multi-input region "
+        "combiners (F5) are not yet implemented");
+
+  // Result types must match input types pairwise.
+  if (inputs.size() != results.size())
+    return emitOpError("number of results must match number of inputs");
+  for (auto [in, out] : llvm::zip(inputs, results)) {
+    if (in.getType() != out.getType())
+      return emitOpError("result type ")
+             << out.getType() << " must match input type " << in.getType();
+  }
+
+  bool hasKind = getKind().has_value();
+  bool hasRegion = !combiner.empty();
+
+  if (hasKind && hasRegion)
+    return emitOpError(
+        "exactly one of `kind` (sugar form) or a non-empty combiner region "
+        "must be provided, but both were given");
+
+  if (!hasKind && !hasRegion)
+    return emitOpError(
+        "exactly one of `kind` (sugar form) or a non-empty combiner region "
+        "must be provided, but neither was given");
+
+  // Sugar form: arity check already covered by inputs.size() == 1 above.
+  // Region form: validate block arguments and the yield terminator.
+  if (hasRegion) {
+    if (!combiner.hasOneBlock())
+      return emitOpError("combiner region must contain exactly one block");
+
+    Block &block = combiner.front();
+    size_t expectedArgs = 2 * inputs.size();
+    if (block.getNumArguments() != expectedArgs)
+      return emitOpError("combiner block must have ")
+             << expectedArgs << " arguments (2 per input), but got "
+             << block.getNumArguments();
+
+    // Pairwise: block args (a0, b0, a1, b1, ...) must match
+    // input element types.
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      Type expected = inputs[i].getType();
+      if (auto shaped = llvm::dyn_cast<ShapedType>(expected))
+        expected = shaped.getElementType();
+      Type aTy = block.getArgument(2 * i).getType();
+      Type bTy = block.getArgument(2 * i + 1).getType();
+      if (aTy != expected || bTy != expected)
+        return emitOpError(
+                   "combiner block arguments at indices ")
+               << (2 * i) << " and " << (2 * i + 1) << " must have type "
+               << expected << ", but got " << aTy << " and " << bTy;
+    }
+
+    // Validate the yield terminator's arity and types.
+    auto yield = llvm::dyn_cast<YieldOp>(block.getTerminator());
+    if (!yield)
+      return emitOpError(
+          "combiner region must be terminated by `ktdp.yield`");
+
+    if (yield.getResults().size() != results.size())
+      return emitOpError("combiner `ktdp.yield` arity (")
+             << yield.getResults().size()
+             << ") does not match number of op results (" << results.size()
+             << ")";
+
+    for (size_t i = 0; i < results.size(); ++i) {
+      Type expected = results[i].getType();
+      if (auto shaped = llvm::dyn_cast<ShapedType>(expected))
+        expected = shaped.getElementType();
+      Type yt = yield.getResults()[i].getType();
+      if (yt != expected)
+        return emitOpError("combiner `ktdp.yield` operand #")
+               << i << " has type " << yt
+               << ", but expected element type " << expected;
+    }
+  }
+
+  return success();
+}
+
+// Assembly format:
+//
+//   ktdp.reduce $inputs (`combiner` `=` `{` $combiner `}`)?
+//               attr-dict `:` type($inputs) `->` type($results)
+//
+// Standard `assemblyFormat` cannot express the optional region after a
+// non-region operand, so we write the parser/printer by hand.
+
+::mlir::ParseResult ReduceOp::parse(OpAsmParser &parser,
+                                    OperationState &result) {
+  // 1) Operands.
+  SmallVector<OpAsmParser::UnresolvedOperand, 1> inputs;
+  if (parser.parseOperandList(inputs))
+    return failure();
+
+  // 2) Optional `combiner = { ... }` region.
+  std::unique_ptr<Region> region = std::make_unique<Region>();
+  if (succeeded(parser.parseOptionalKeyword("combiner"))) {
+    if (parser.parseEqual() ||
+        parser.parseRegion(*region, /*arguments=*/{}, /*enableNameShadowing=*/false))
+      return failure();
+  }
+  result.addRegion(std::move(region));
+
+  // 3) Attribute dict.
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+
+  // 4) Types: `:` type-list `->` type-list
+  SmallVector<Type, 1> inputTypes;
+  SmallVector<Type, 1> resultTypes;
+  if (parser.parseColon() || parser.parseTypeList(inputTypes) ||
+      parser.parseArrow() || parser.parseTypeList(resultTypes))
+    return failure();
+
+  if (inputs.size() != inputTypes.size())
+    return parser.emitError(parser.getCurrentLocation())
+           << "number of input operands (" << inputs.size()
+           << ") does not match number of input types (" << inputTypes.size()
+           << ")";
+
+  if (parser.resolveOperands(inputs, inputTypes, parser.getCurrentLocation(),
+                             result.operands))
+    return failure();
+
+  result.addTypes(resultTypes);
+  return success();
+}
+
+void ReduceOp::print(OpAsmPrinter &printer) {
+  printer << " ";
+  printer.printOperands(getInputs());
+
+  if (!getCombiner().empty()) {
+    printer << " combiner = ";
+    printer.printRegion(getCombiner(),
+                        /*printEntryBlockArgs=*/true,
+                        /*printBlockTerminators=*/true);
+  }
+
+  printer.printOptionalAttrDict((*this)->getAttrs());
+
+  printer << " : ";
+  llvm::interleaveComma(getInputs().getTypes(), printer);
+  printer << " -> ";
+  llvm::interleaveComma(getResults().getTypes(), printer);
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 #define GET_OP_CLASSES

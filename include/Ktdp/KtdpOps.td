@@ -73,6 +73,105 @@ def KTDP_RegionTerminatorOp : Ktdp_Op<"region_terminator", [Terminator]> {
   let assemblyFormat = "attr-dict";
 }
 
+//===----------------------------------------------------------------------===//
+// Cross-core reduce (Style A) — RFC_reduce_api.md
+//===----------------------------------------------------------------------===//
+//
+// First cut: just enough surface for the split-K reduce-sum example.
+//
+// Modes implemented: F1 (`all_reduce`) and F2 (`reduce_to_core<N>`).
+// F3 `reduce_scatter` is deferred — its mode entry and `axis`
+// parameter will land in `reduce_mode` later. Multi-input region
+// combiners (F5 online-softmax-combine) are also deferred; the
+// verifier currently rejects more than one input.
+//
+// Other RFC primitives (`broadcast` C1, `all_gather` C2, `all_to_all`
+// X1) are intentionally NOT folded into `kind`. Per the RFC's hybrid
+// resolution they belong in their own ops, not as new `reduce_kind`
+// entries.
+
+def KTDP_YieldOp : Ktdp_Op<"yield", [
+    Pure, Terminator, ReturnLike, HasParent<"ReduceOp">
+  ]> {
+  let summary = "Terminator for the combiner region of `ktdp.reduce`.";
+  let description = [{
+    `ktdp.yield` returns one value per result of the parent
+    `ktdp.reduce`. It is only valid inside the combiner region of
+    `ktdp.reduce`.
+
+    Example:
+    ```mlir
+    ktdp.yield %s : f16
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$results);
+  let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
+}
+
+def KTDP_ReduceOp : Ktdp_Op<"reduce", [
+    RecursiveMemoryEffects,
+    SingleBlockImplicitTerminator<"ktdp::YieldOp">
+  ]> {
+  let summary = "Cross-core reduction across a grid axis (Style A).";
+  let description = [{
+    Cross-core reduction over the grid axis named by `across`.
+
+    Two combiner-spelling forms are supported:
+
+    - **Sugar form** — set `kind` to a recognized `reduce_kind` and
+      omit the combiner region:
+      ```mlir
+      %y = ktdp.reduce %x { kind   = #ktdp.reduce_kind<sum>,
+                            mode   = #ktdp.reduce_mode<all_reduce>,
+                            across = #ktdp.grid_axis<0> }
+           : tensor<32x512xf16> -> tensor<32x512xf16>
+      ```
+    - **Region form** — supply an explicit combiner region taking
+      `2*N` block arguments (paired per input) and yielding `N`
+      values via `ktdp.yield`. The `kind` attribute must be absent.
+      ```mlir
+      %y = ktdp.reduce %x combiner = {
+        ^bb0(%a: f16, %b: f16):
+          %s = arith.addf %a, %b : f16
+          ktdp.yield %s : f16
+      } { mode = ..., across = ... } : tensor<...> -> tensor<...>
+      ```
+
+    The `mode` attribute selects result placement:
+    - `all_reduce` — result replicated on every core (F1).
+    - `reduce_to_core<N>` — result on core N only; result on other
+      cores is unspecified / poison (F2).
+
+    **Support model.** The verifier validates *structure only* (arity,
+    types, region terminator, attribute consistency). It does not
+    inspect what arithmetic the combiner body performs. Whether a
+    given combiner body lowers to a hardware collective is a
+    lowering-pass concern. The `kind` enum is *frontend ergonomics*,
+    not a capability list — absence of an entry from `reduce_kind` is
+    not a claim that the region form will not work for that combiner.
+
+    TODO: F5 multi-input region combiners (e.g. online-softmax-combine
+    over `(m, l, acc)`) are currently rejected. When added, lift the
+    `inputs.size() == 1` restriction and adjust the block-argument
+    arity check accordingly.
+  }];
+
+  let arguments = (ins
+    Variadic<AnyType>:$inputs,
+    OptionalAttr<Ktdp_ReduceKindAttr>:$kind,
+    Ktdp_ReduceModeAttr:$mode,
+    Ktdp_GridAxisAttr:$across
+  );
+
+  let results = (outs Variadic<AnyType>:$results);
+
+  let regions = (region AnyRegion:$combiner);
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
+}
+
 def KTDP_GetComputeTileIdOp : Ktdp_Op<"get_compute_tile_id",
   [Pure]> {
     let summary = "Gets the id of the current compute tile";
