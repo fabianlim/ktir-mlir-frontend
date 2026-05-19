@@ -148,12 +148,12 @@ for op, depth in walk_module(source):
     print(f"{'  ' * depth}{op.name}")
 ```
 
-## Use ktir-opt
+## Use ktdp-opt
 
 ```bash
-build/bin/ktir-opt your_file.mlir
-build/bin/ktir-opt --show-dialects
-build/bin/ktir-opt --verify-roundtrip file.mlir
+build/bin/ktdp-opt your_file.mlir
+build/bin/ktdp-opt --show-dialects
+build/bin/ktdp-opt --verify-roundtrip file.mlir
 ```
 
 ## Project Structure
@@ -164,7 +164,7 @@ include/
 lib/
   Ktdp/                    # Dialect implementation
 tools/
-  ktir-opt/                # Optimizer driver tool
+  ktdp-opt/                # Optimizer driver tool
 test/
   Ktdp/                    # 17 LIT test files
 ```

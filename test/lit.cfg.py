@@ -1,6 +1,7 @@
 import os
 import lit.formats
 import lit.llvm
+from lit.llvm.subst import FindTool, ToolSubst
 
 llvm_config = lit.llvm.llvm_config
 
@@ -16,7 +17,11 @@ llvm_config.use_default_substitutions()
 
 # Add tool directories to PATH
 tool_dirs = [config.ktir_tools_dir, config.llvm_tools_dir]
-llvm_config.add_tool_substitutions(["ktir-opt", "FileCheck"], tool_dirs)
+llvm_config.add_tool_substitutions([
+    ToolSubst("ktir-opt", FindTool("ktdp-opt")), # TODO: Update test RUN lines.
+    "ktdp-opt", 
+    "FileCheck"], 
+    tool_dirs)
 
 # Quote tool paths that contain spaces so shell commands work correctly
 config.substitutions = [
