@@ -15,9 +15,11 @@ add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=${MLIR_PYTHON_PACKAGE_PREFIX
 declare_mlir_python_sources(KtdpPythonSources
   ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"
   SOURCES
-    __init__.py)
+    __init__.py
+)
 declare_mlir_python_sources(KtdpPythonExtensions
-  ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}")
+  ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"
+)
 
 declare_mlir_python_sources(KtdpPythonSources.Dialects
   ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"

@@ -17,7 +17,10 @@ option(KTIR_BUILD_TOOLS "Build tool executables" YES)
 
 # Detect if this is (supposed to be) a stand-alone build.
 if(NOT KTDP_STAND_ALONE)
-  string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" KTDP_STAND_ALONE)
+  string(COMPARE EQUAL 
+    "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" 
+    KTDP_STAND_ALONE
+  )
 endif()
 if(KTDP_STAND_ALONE)
   # Find MLIR.
@@ -74,7 +77,10 @@ if(KTIR_ENABLE_PYTHON_BINDINGS)
     set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "mlir_ktdp" CACHE STRING "" FORCE)
   endif()
   if(NOT MLIR_BINDINGS_PYTHON_INSTALL_PREFIX)
-    set(MLIR_BINDINGS_PYTHON_INSTALL_PREFIX "python_packages/ktdp/${MLIR_PYTHON_PACKAGE_PREFIX}" CACHE STRING "" FORCE)
+    set(MLIR_BINDINGS_PYTHON_INSTALL_PREFIX 
+      "python_packages/ktdp/${MLIR_PYTHON_PACKAGE_PREFIX}" 
+      CACHE STRING "" FORCE
+    )
   endif()
 
   add_subdirectory(python)

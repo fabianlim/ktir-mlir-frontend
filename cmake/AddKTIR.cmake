@@ -51,7 +51,8 @@ function(add_ktir_doc doc_filename output_file output_directory command)
           COMMAND ${CMAKE_COMMAND} -E copy
                   ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.md
                   ${GEN_DOC_FILE}
-          DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.md)
+          DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.md
+  )
   add_custom_target(${output_file}DocGen DEPENDS ${GEN_DOC_FILE})
   add_dependencies(ktir-doc ${output_file}DocGen)
 endfunction()
@@ -84,12 +85,14 @@ macro(add_ktir_tool name)
     install(TARGETS ${name}
       COMPONENT ${name}
       ${export_to_ktirtargets}
-      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
 
     if(NOT CMAKE_CONFIGURATION_TYPES)
       add_llvm_install_targets(install-${name}
         DEPENDS ${name}
-        COMPONENT ${name})
+        COMPONENT ${name}
+      )
     endif()
     set_property(GLOBAL APPEND PROPERTY KTIR_EXPORTS ${name})
   endif()
@@ -148,12 +151,14 @@ function(add_ktir_library_install name)
       LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
       ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
       RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-      OBJECTS DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+      OBJECTS DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+    )
 
     if (NOT LLVM_ENABLE_IDE)
       add_llvm_install_targets(install-${name}
-                              DEPENDS ${name}
-                              COMPONENT ${name})
+        DEPENDS ${name}
+        COMPONENT ${name}
+      )
     endif()
   set_property(GLOBAL APPEND PROPERTY KTIR_LIBS ${name})
   endif()
