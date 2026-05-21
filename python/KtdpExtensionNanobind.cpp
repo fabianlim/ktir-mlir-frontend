@@ -21,7 +21,7 @@
 namespace nb = nanobind;
 
 struct PyAccessTileType
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteType<PyAccessTileType, mlir::python::mlir_ktdp::PyShapedType> {
+    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteType<PyAccessTileType, mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyShapedType> {
   static constexpr IsAFunctionTy isaFunction = mlirKtdpTypeIsAAccessTileType;
   static constexpr GetTypeIDFunctionTy getTypeIdFunction =
       mlirKtdpAccessTileTypeGetTypeID;
@@ -45,7 +45,7 @@ struct PyAccessTileType
 };
 
 struct PyRuntimeArgType
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteType<PyRuntimeArgType, mlir::python::mlir_ktdp::PyType> {
+    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteType<PyRuntimeArgType, mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyType> {
   static constexpr IsAFunctionTy isaFunction = mlirKtdpTypeIsARuntimeArgType;
   static constexpr GetTypeIDFunctionTy getTypeIdFunction =
       mlirKtdpRuntimeArgTypeGetTypeID;
