@@ -8,12 +8,12 @@ set(KTDP_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir_ktdp")
 # Sources
 ################################################################################
 
-if(KTIR_STAND_ALONE)
+if(KTDP_STAND_ALONE)
   declare_mlir_python_sources(KtdpPythonSources
-    ROOT_DIR "${KTIR_PYTHON_ROOT_DIR}"
+    ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"
+    ADD_TO_PARENT KTIRPythonSources
     SOURCES
       __init__.py
-    ADD_to_PARENT KTIRPythonSources
   )
 endif()
 
