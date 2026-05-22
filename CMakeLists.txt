@@ -85,3 +85,14 @@ if(KTIR_ENABLE_PYTHON_BINDINGS)
 
   add_subdirectory(python)
 endif()
+
+# Additional installation instructions.
+
+if(KTDP_STAND_ALONE)
+  if(LLVM_LINK_LLVM_DYLIB)
+    install(IMPORTED_RUNTIME_ARTIFACTS LLVM)
+  endif()
+  if(MLIR_LINK_MLIR_DYLIB)
+    install(IMPORTED_RUNTIME_ARTIFACTS MLIR)
+  endif()
+endif()
