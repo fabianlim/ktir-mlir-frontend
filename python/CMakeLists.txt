@@ -100,6 +100,10 @@ if(KTDP_STAND_ALONE)
     DECLARED_SOURCES ${_source_components}
   )
 
+  ktir_python_fix_rpath(KTIRKtdpPythonCAPI 
+    RELATIVE_INSTALL_ROOT "../../../.." # NOTE: This is fragile.
+  )
+
   add_mlir_python_modules(KTIRPythonModules
     ROOT_PREFIX "${KTIR_PYTHON_PACKAGE_DIR}"
     INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
