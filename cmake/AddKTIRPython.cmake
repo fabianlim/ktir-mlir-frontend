@@ -3,7 +3,7 @@ include(AddMLIRPython)
 set(KTIR_PYTHON_PACKAGE_DIR "${KTIR_BINARY_DIR}/${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}")
 
 # KTIR bindings contain their own copy of the MLIR bindings.
-add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=${MLIR_PYTHON_PACKAGE_PREFIX}")
+add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=${MLIR_PYTHON_PACKAGE_PREFIX}.")
 
 if(NOT TARGET KTIRPythonSources)
   declare_mlir_python_sources(KTIRPythonSources)
