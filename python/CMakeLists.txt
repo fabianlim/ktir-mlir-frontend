@@ -22,7 +22,7 @@ declare_mlir_dialect_python_bindings(
   ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"
   TD_FILE dialects/KtdpOps.td
   SOURCES 
-    dialects/ktdp_nanobind.py
+    dialects/ktdp.py
     _mlir_libs/_ktdpDialectsNanobind/py.typed
   DIALECT_NAME ktdp
 )
