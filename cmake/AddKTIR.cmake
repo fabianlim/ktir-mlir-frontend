@@ -1,21 +1,9 @@
-# Setup KTIR umbrella targets that should be available everywhere.
-
-if(NOT TARGET check-ktir)
-  # Run all regression tests.
-  add_custom_target(check-ktir)
-endif()
-if(NOT TARGET ktir-capi)
-  # Build all CAPI libraries.
-  add_custom_target(ktir-capi)
-endif()
-if(NOT TARGET ktir-doc)
-  # Build all documentation targets.
-  add_custom_target(ktir-doc)
-endif()
-if(NOT TARGET ktir-headers)
-  # Build all generated include targets.
-  add_custom_target(ktir-headers)
-endif()
+# Build all CAPI libraries.
+add_custom_target(ktir-capi)
+# Build all documentation targets.
+add_custom_target(ktir-doc)
+# Build all generated include targets.
+add_custom_target(ktir-headers)
 
 #
 # TableGen related helpers

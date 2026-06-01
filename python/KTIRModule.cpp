@@ -83,16 +83,12 @@ struct PyRuntimeArgType
   }
 };
 
-NB_MODULE(_ktdpDialectsNanobind, m) {
-  //===--------------------------------------------------------------------===//
-  // ktdp dialect
-  //===--------------------------------------------------------------------===//
-  auto ktdpM = m.def_submodule("ktdp");
+//===----------------------------------------------------------------------===//
+// _ktir Module
+//===----------------------------------------------------------------------===//
 
-  PyAccessTileType::bind(ktdpM);
-  PyRuntimeArgType::bind(ktdpM);
-
-  ktdpM.def(
+NB_MODULE(_ktir, m) {
+  m.def(
       "register_dialects",
       [](mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
              context,
@@ -113,4 +109,12 @@ NB_MODULE(_ktdpDialectsNanobind, m) {
         }
       },
       nb::arg("context").none() = nb::none(), nb::arg("load") = true);
+
+  //===--------------------------------------------------------------------===//
+  // _ktir.ktdp Module
+  //===--------------------------------------------------------------------===//
+
+  auto ktdp = m.def_submodule("ktdp");
+  PyAccessTileType::bind(ktdp);
+  PyRuntimeArgType::bind(ktdp);
 }

@@ -1,29 +1,32 @@
 include(AddKTIRPython)
 
-set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
-
-set(KTDP_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir_ktdp")
+# Where all the Python sources are.
+set(KTIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir_ktdp")
 
 ################################################################################
 # Sources
 ################################################################################
 
-if(KTDP_STAND_ALONE)
-  declare_mlir_python_sources(KtdpPythonSources
-    ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"
-    ADD_TO_PARENT KTIRPythonSources
-    SOURCES
-      __init__.py
-  )
-endif()
+declare_mlir_python_sources(KTIRPythonSources
+  ROOT_DIR "${KTIR_PYTHON_ROOT_DIR}"
+  SOURCES
+    __init__.py
+)
+declare_mlir_python_sources(KTIRPythonSources.Dialects
+  ADD_TO_PARENT KTIRPythonSources
+)
+declare_mlir_python_sources(KTIRPythonExtensions
+  ROOT_DIR "${KTIR_PYTHON_ROOT_DIR}"
+  SOURCES
+    _mlir_libs/_ktir/py.typed
+)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT KTIRPythonSources.Dialects
-  ROOT_DIR "${KTDP_PYTHON_ROOT_DIR}"
+  ROOT_DIR "${KTIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/KtdpOps.td
   SOURCES 
     dialects/ktdp.py
-    _mlir_libs/_ktdpDialectsNanobind/py.typed
   DIALECT_NAME ktdp
 )
 
@@ -31,11 +34,11 @@ declare_mlir_dialect_python_bindings(
 # Extensions
 ################################################################################
 
-declare_mlir_python_extension(KtdpPythonExtensions.Main
-  MODULE_NAME _ktdpDialectsNanobind
+declare_mlir_python_extension(KTIRPythonExtensions.Main
+  MODULE_NAME _ktir
   ADD_TO_PARENT KTIRPythonExtensions
   SOURCES
-    KtdpExtensionNanobind.cpp
+    KTIRModule.cpp
   EMBED_CAPI_LINK_LIBS
     MLIRCAPIIR
     MLIRCAPIArith
@@ -51,28 +54,13 @@ declare_mlir_python_extension(KtdpPythonExtensions.Main
 )
 
 if(MLIR_PYTHON_STUBGEN_ENABLED)
-  get_target_property(_ktdpextension_srcs KtdpPythonExtensions.Main INTERFACE_SOURCES)
-  mlir_generate_type_stubs(
-    MODULE_NAME ${MLIR_PYTHON_PACKAGE_PREFIX}._mlir_libs._ktdpDialectsNanobind
+  add_ktir_python_type_stubs(KTIRPythonExtensions.Main
+    ADD_TO_PARENT KTIRPythonSources
     DEPENDS_TARGETS
       KTIRPythonModules.extension._mlir.dso
-      KTIRPythonModules.extension._ktdpDialectsNanobind.dso
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/type_stubs/_mlir_libs"
+      KTIRPythonModules.extension._ktir.dso
     OUTPUTS
-      _ktdpDialectsNanobind/__init__.pyi
-      _ktdpDialectsNanobind/ktdp.pyi
-    DEPENDS_TARGET_SRC_DEPS "${_ktdpextension_srcs}"
-    IMPORT_PATHS "${KTIR_PYTHON_PACKAGE_DIR}/.."
-  )
-  set(_ktdpDialectsNanobind_typestub_gen_target "${NB_STUBGEN_CUSTOM_TARGET}")
-
-  declare_mlir_python_sources(
-    KtdpPythonExtensions.Main.type_stub_gen
-    ROOT_DIR "${CMAKE_CURRENT_BINARY_DIR}/type_stubs"
-    ADD_TO_PARENT KTIRPythonSources
-    SOURCES
-      _mlir_libs/_ktdpDialectsNanobind/__init__.pyi
-      _mlir_libs/_ktdpDialectsNanobind/ktdp.pyi
+      _ktir.pyi
   )
 endif()
 
@@ -80,7 +68,7 @@ endif()
 # Generate packages and shared library
 ################################################################################
 
-if(KTDP_STAND_ALONE)
+if(KTIR_STAND_ALONE)
   set(_source_components
     MLIRPythonSources.Core
     MLIRPythonSources.Dialects.builtin
@@ -96,11 +84,10 @@ if(KTDP_STAND_ALONE)
     INSTALL_COMPONENT KTIRPythonModules
     INSTALL_DESTINATION "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}/_mlir_libs"
     OUTPUT_DIRECTORY "${KTIR_PYTHON_PACKAGE_DIR}/_mlir_libs"
-    RELATIVE_INSTALL_ROOT "../../../.." # NOTE: This is fragile.
     DECLARED_SOURCES ${_source_components}
   )
 
-  ktir_python_fix_rpath(KTIRKtdpPythonCAPI 
+  ktir_python_set_rpath(KTIRKtdpPythonCAPI 
     RELATIVE_INSTALL_ROOT "../../../.." # NOTE: This is fragile.
   )
 
@@ -113,6 +100,6 @@ if(KTDP_STAND_ALONE)
   )
 
   if(MLIR_PYTHON_STUBGEN_ENABLED)
-    add_dependencies(KTIRPythonModules ${_ktdpDialectsNanobind_typestub_gen_target})
+    add_dependencies(KTIRPythonModules KTIRPythonTypeStubs)
   endif()
 endif()

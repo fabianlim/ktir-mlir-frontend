@@ -11,18 +11,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 set(LLVM_LIT_ARGS "-sv" CACHE STRING "Default options for lit")
 
-# Declare new CMake build options and their defaults.
-option(KTIR_ENABLE_PYTHON_BINDINGS "Build Python bindings" NO)
-option(KTIR_BUILD_TOOLS "Build tool executables" YES)
-
 # Detect if this is (supposed to be) a stand-alone build.
-if(NOT KTDP_STAND_ALONE)
-  string(COMPARE EQUAL 
-    "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" 
-    KTDP_STAND_ALONE
-  )
+set(KTIR_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING "" FORCE)
+if(NOT DEFINED KTIR_STAND_ALONE)
+  string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${KTIR_SOURCE_DIR}" KTIR_STAND_ALONE)
 endif()
-if(KTDP_STAND_ALONE)
+
+if(KTIR_STAND_ALONE)
   # Find MLIR.
   find_package(MLIR REQUIRED CONFIG)
   message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
@@ -49,46 +44,74 @@ if(KTDP_STAND_ALONE)
   set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
   set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
 
-  # Set project-specific output directories.
-  set(KTIR_BINARY_DIR ${CMAKE_BINARY_DIR})
+  # Declare new CMake build options and their defaults.
+  option(KTIR_ENABLE_PYTHON_BINDINGS "Build Python bindings" NO)
+  option(KTIR_BUILD_TOOLS "Build tool executables" YES)
+endif()
+
+if(TARGET MLIR AND NOT DEFINED MLIR_LINK_MLIR_DYLIB)
+  # As a workaround for MLIRConfig.cmake not exporting this variable, we will
+  # infer that it is set if the DSO target exists.
+  set(MLIR_LINK_MLIR_DYLIB YES)
+endif()
+if(LLVM_LINK_LLVM_DYLIB)
+  get_target_property(_llvm_dso LLVM LOCATION)
+  message(STATUS "Linking against: ${_llvm_dso}")
+endif()
+if(MLIR_LINK_MLIR_DYLIB)
+  get_target_property(_mlir_dso MLIR LOCATION)
+  message(STATUS "Linking against: ${_mlir_dso}")
+endif()
+
+# Ensure project-specific variables are set, regardless of how we got here.
+if(NOT DEFINED KTIR_BINARY_DIR)
+  set(KTIR_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE STRING "" FORCE)
+endif()
+if(NOT DEFINED KTIR_ENABLE_PYTHON_BINDINGS)
+  set(KTIR_ENABLE_PYTHON_BINDINGS OFF CACHE BOOL "" FORCE)
+endif()
+if(NOT DEFINED KTIR_BUILD_TOOLS)
+  set(KTIR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+endif()
+
+# Setup Python binding variables.
+if(KTIR_ENABLE_PYTHON_BINDINGS)
+  set(MLIR_ENABLE_BINDINGS_PYTHON ON)
+  include(MLIRDetectPythonEnv)
+  mlir_configure_python_dev_packages()
+
+  if(NOT DEFINED MLIR_PYTHON_PACKAGE_PREFIX)
+    set(MLIR_PYTHON_PACKAGE_PREFIX "mlir_ktdp" CACHE STRING "" FORCE)
+  endif()
+  if(NOT DEFINED MLIR_BINDINGS_PYTHON_NB_DOMAIN)
+    set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "mlir_ktdp" CACHE STRING "" FORCE)
+  endif()
+  if(NOT DEFINED MLIR_BINDINGS_PYTHON_INSTALL_PREFIX)
+    set(MLIR_BINDINGS_PYTHON_INSTALL_PREFIX 
+      "python_packages/ktdp/${MLIR_PYTHON_PACKAGE_PREFIX}" 
+      CACHE STRING "" FORCE
+    )
+  endif()
 endif()
 
 # Apply target properties for this project globally.
 include_directories(SYSTEM ${PROJECT_BINARY_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-# Include KTIR cmake module.
+# Include KTIR CMake module.
 include(AddKTIR)
 
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
 add_subdirectory(test)
-
 if(KTIR_ENABLE_PYTHON_BINDINGS)
-  set(MLIR_ENABLE_BINDINGS_PYTHON ON)
-  include(MLIRDetectPythonEnv)
-  mlir_configure_python_dev_packages()
-
-  if(NOT MLIR_PYTHON_PACKAGE_PREFIX)
-    set(MLIR_PYTHON_PACKAGE_PREFIX "mlir_ktdp" CACHE STRING "" FORCE)
-  endif()
-  if(NOT MLIR_BINDINGS_PYTHON_NB_DOMAIN)
-    set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "mlir_ktdp" CACHE STRING "" FORCE)
-  endif()
-  if(NOT MLIR_BINDINGS_PYTHON_INSTALL_PREFIX)
-    set(MLIR_BINDINGS_PYTHON_INSTALL_PREFIX 
-      "python_packages/ktdp/${MLIR_PYTHON_PACKAGE_PREFIX}" 
-      CACHE STRING "" FORCE
-    )
-  endif()
-
   add_subdirectory(python)
 endif()
 
 # Additional installation instructions.
 
-if(KTDP_STAND_ALONE)
+if(KTIR_STAND_ALONE)
   if(LLVM_LINK_LLVM_DYLIB)
     install(IMPORTED_RUNTIME_ARTIFACTS LLVM)
   endif()

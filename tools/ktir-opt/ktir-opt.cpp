@@ -1,4 +1,4 @@
-//===- ktdp-opt.cpp - KTDP MLIR optimizer driver ----------------*- C++ -*-===//
+//===- ktir-opt-opt.cpp - KTIR MLIR optimizer driver ------------*- C++ -*-===//
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,5 +21,5 @@ int main(int argc, char **argv) {
   registerAllExtensions(registry);
 
   return asMainReturnCode(
-      MlirOptMain(argc, argv, "KTDP optimizer driver\n", registry));
+      MlirOptMain(argc, argv, "KTIR optimizer driver\n", registry));
 }
