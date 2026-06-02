@@ -1,5 +1,8 @@
 include(AddKTIRPython)
 
+# KTIR bindings contain their own copy of the MLIR bindings.
+add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=${MLIR_PYTHON_PACKAGE_PREFIX}.")
+
 # Where all the Python sources are.
 set(KTIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir_ktdp")
 
@@ -60,7 +63,8 @@ if(MLIR_PYTHON_STUBGEN_ENABLED)
       KTIRPythonModules.extension._mlir.dso
       KTIRPythonModules.extension._ktir.dso
     OUTPUTS
-      _ktir.pyi
+      _ktir/__init__.pyi
+      _ktir/ktdp.pyi
   )
 endif()
 
@@ -68,38 +72,36 @@ endif()
 # Generate packages and shared library
 ################################################################################
 
-if(KTIR_STAND_ALONE)
-  set(_source_components
-    MLIRPythonSources.Core
-    MLIRPythonSources.Dialects.builtin
-    KTIRPythonSources
-    KTIRPythonExtensions
-  )
+set(_source_components
+  MLIRPythonSources.Core
+  MLIRPythonSources.Dialects.builtin
+  KTIRPythonSources
+  KTIRPythonExtensions
+)
 
-  if(MLIR_PYTHON_STUBGEN_ENABLED)
-    list(APPEND _source_components MLIRPythonExtension.Core.type_stub_gen)
-  endif()
+if(MLIR_PYTHON_STUBGEN_ENABLED)
+  list(APPEND _source_components MLIRPythonExtension.Core.type_stub_gen)
+endif()
 
-  add_mlir_python_common_capi_library(KTIRKtdpPythonCAPI
-    INSTALL_COMPONENT KTIRPythonModules
-    INSTALL_DESTINATION "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}/_mlir_libs"
-    OUTPUT_DIRECTORY "${KTIR_PYTHON_PACKAGE_DIR}/_mlir_libs"
-    DECLARED_SOURCES ${_source_components}
-  )
+add_mlir_python_common_capi_library(KTIRKtdpPythonCAPI
+  INSTALL_COMPONENT KTIRPythonModules
+  INSTALL_DESTINATION "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}/_mlir_libs"
+  OUTPUT_DIRECTORY "${KTIR_PYTHON_PACKAGE_DIR}/_mlir_libs"
+  DECLARED_SOURCES ${_source_components}
+)
 
-  ktir_python_set_rpath(KTIRKtdpPythonCAPI 
-    RELATIVE_INSTALL_ROOT "../../../.." # NOTE: This is fragile.
-  )
+ktir_python_set_rpath(KTIRKtdpPythonCAPI 
+  RELATIVE_INSTALL_ROOT "../../../.." # NOTE: This is fragile.
+)
 
-  add_mlir_python_modules(KTIRPythonModules
-    ROOT_PREFIX "${KTIR_PYTHON_PACKAGE_DIR}"
-    INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
-    DECLARED_SOURCES ${_source_components}
-    COMMON_CAPI_LINK_LIBS
-      KTIRKtdpPythonCAPI
-  )
+add_mlir_python_modules(KTIRPythonModules
+  ROOT_PREFIX "${KTIR_PYTHON_PACKAGE_DIR}"
+  INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
+  DECLARED_SOURCES ${_source_components}
+  COMMON_CAPI_LINK_LIBS
+    KTIRKtdpPythonCAPI
+)
 
-  if(MLIR_PYTHON_STUBGEN_ENABLED)
-    add_dependencies(KTIRPythonModules KTIRPythonTypeStubs)
-  endif()
+if(MLIR_PYTHON_STUBGEN_ENABLED)
+  add_dependencies(KTIRPythonModules KTIRPythonTypeStubs)
 endif()

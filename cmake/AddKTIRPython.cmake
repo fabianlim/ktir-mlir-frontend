@@ -4,6 +4,7 @@ set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 set(KTIR_PYTHON_PACKAGE_DIR 
   "${KTIR_BINARY_DIR}/${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
 )
+file(MAKE_DIRECTORY "${KTIR_PYTHON_PACKAGE_DIR}")
 
 # FIXME: This is a horrible work-around. Unfortunately, MLIR will not set the
 #        INSTALL_RPATH when BUILD_SHARED_LIBS is off, even though we need to
