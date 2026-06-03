@@ -30,15 +30,6 @@ function(ktir_python_set_rpath target)
 endfunction()
 
 if(MLIR_PYTHON_STUBGEN_ENABLED)
-  add_custom_target(KTIRPythonTypeStubs)
-
-  if(MLIR_PYTHON_STUBGEN_ENABLED)
-    if(NB_ABI MATCHES "[0-9]t")
-      set(_ft "-ft")
-    endif()
-    set(NB_LIBRARY_TARGET_NAME "nanobind${_ft}-${MLIR_BINDINGS_PYTHON_NB_DOMAIN}")
-  endif()
-
   function(add_ktir_python_type_stubs extension)
     cmake_parse_arguments(ARG "" "ADD_TO_PARENT" "DEPENDS_TARGETS;OUTPUTS;IMPORT_PATHS" ${ARGN})
 
@@ -53,7 +44,6 @@ if(MLIR_PYTHON_STUBGEN_ENABLED)
       DEPENDS_TARGET_SRC_DEPS "${_extension_sources}"
       IMPORT_PATHS "${KTIR_PYTHON_PACKAGE_DIR}/..;${ARG_IMPORT_PATHS}"
     )
-    add_dependencies(KTIRPythonTypeStubs ${NB_STUBGEN_CUSTOM_TARGET})
 
     set(_generated_outputs "${ARG_OUTPUTS}")
     list(TRANSFORM _generated_outputs PREPEND "_mlir_libs/")

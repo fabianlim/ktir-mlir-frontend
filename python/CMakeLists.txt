@@ -62,6 +62,9 @@ if(MLIR_PYTHON_STUBGEN_ENABLED)
     DEPENDS_TARGETS
       KTIRPythonModules.extension._mlir.dso
       KTIRPythonModules.extension._ktir.dso
+      KTIRPythonModules.sources.MLIRPythonSources.Core
+      KTIRPythonModules.sources.MLIRPythonSources.Core.Python
+      KTIRPythonModules.sources.MLIRPythonExtension.Core.type_stub_gen
     OUTPUTS
       _ktir/__init__.pyi
       _ktir/ktdp.pyi
@@ -101,7 +104,3 @@ add_mlir_python_modules(KTIRPythonModules
   COMMON_CAPI_LINK_LIBS
     KTIRKtdpPythonCAPI
 )
-
-if(MLIR_PYTHON_STUBGEN_ENABLED)
-  add_dependencies(KTIRPythonModules KTIRPythonTypeStubs)
-endif()
