@@ -151,3 +151,45 @@ Type RuntimeArgType::parse(AsmParser &parser) {
       [&] { return parser.emitError(parser.getCurrentLocation()); },
       underlyingType, granularity, upperbound);
 }
+
+//===----------------------------------------------------------------------===//
+// TileFutureType
+//===----------------------------------------------------------------------===//
+
+LogicalResult TileFutureType::verify(
+    function_ref<InFlightDiagnostic()> emitError, ArrayRef<Type> partialTypes) {
+  if (partialTypes.empty())
+    return emitError() << "tile_future must carry at least one partial type";
+
+  for (Type t : partialTypes) {
+    if (!mlir::isa<RankedTensorType>(t))
+      return emitError() << "tile_future partial type must be a ranked tensor, "
+                            "but got: "
+                         << t;
+  }
+
+  return success();
+}
+
+void TileFutureType::print(AsmPrinter &printer) const {
+  printer << "<";
+  llvm::interleaveComma(getPartialTypes(), printer);
+  printer << ">";
+}
+
+Type TileFutureType::parse(AsmParser &parser) {
+  if (parser.parseLess()) return Type();
+
+  SmallVector<Type, 2> partialTypes;
+  do {
+    Type t;
+    if (parser.parseType(t)) return Type();
+    partialTypes.push_back(t);
+  } while (succeeded(parser.parseOptionalComma()));
+
+  if (parser.parseGreater()) return Type();
+
+  return TileFutureType::getChecked(
+      [&] { return parser.emitError(parser.getCurrentLocation()); },
+      partialTypes);
+}

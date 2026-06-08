@@ -1220,6 +1220,276 @@ LogicalResult RuntimeArgExtractOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// InterTileProduceOp
+//===----------------------------------------------------------------------===//
+
+// Syntax:
+//   ktdp.inter_tile_produce
+//       producer_tiles_per_group = <set>, groups = <set>
+//       : T_p_1, ..., T_p_N -> !ktdp.tile_future<T_p_1, ..., T_p_N>
+//       { ^bb0(%gid: index): ktdp.yield_partial ... }
+ParseResult InterTileProduceOp::parse(OpAsmParser& parser,
+                                      OperationState& result) {
+  IntegerSetAttr producerSet, groupsSet;
+  if (parser.parseKeyword("producer_tiles_per_group") || parser.parseEqual() ||
+      parser.parseAttribute(producerSet, "producer_tiles_per_group",
+                            result.attributes) ||
+      parser.parseComma() || parser.parseKeyword("groups") ||
+      parser.parseEqual() ||
+      parser.parseAttribute(groupsSet, "groups", result.attributes))
+    return failure();
+
+  if (parser.parseOptionalAttrDict(result.attributes)) return failure();
+
+  // Partial types ... -> future type.
+  SmallVector<Type> partialTypes;
+  Type futureType;
+  if (parser.parseColonTypeList(partialTypes) || parser.parseArrow() ||
+      parser.parseType(futureType))
+    return failure();
+  result.addTypes(futureType);
+
+  // Producer region.
+  Region* body = result.addRegion();
+  if (parser.parseRegion(*body, /*arguments=*/{}, /*enableNameShadowing=*/false))
+    return failure();
+  return success();
+}
+
+void InterTileProduceOp::print(OpAsmPrinter& p) {
+  p << " producer_tiles_per_group = " << getProducerTilesPerGroupAttr()
+    << ", groups = " << getGroupsAttr();
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          /*elidedAttrs=*/{"producer_tiles_per_group", "groups"});
+  p << " : ";
+  llvm::interleaveComma(getPartialTypes(), p);
+  p << " -> " << getFuture().getType() << ' ';
+  p.printRegion(getBody(), /*printEntryBlockArgs=*/true,
+                /*printBlockTerminators=*/true);
+}
+
+LogicalResult InterTileProduceOp::verify() {
+  auto futureType = cast<TileFutureType>(getFuture().getType());
+  ArrayRef<Type> partials = futureType.getPartialTypes();
+
+  // Single-use invariant (§2.3): exactly one delivery op consumes the future.
+  if (!getFuture().hasOneUse() && !getFuture().use_empty())
+    return emitOpError("future result must have exactly one use (the single "
+                       "delivery op that consumes it)");
+
+  // Producer region: one block, single `index` group-id argument.
+  Block& block = getBody().front();
+  if (block.getNumArguments() != 1 ||
+      !block.getArgument(0).getType().isIndex())
+    return emitOpError(
+        "producer region must take a single `index` group-id argument");
+
+  // Terminator yields one value per partial role, matching the future types.
+  auto yield = cast<YieldPartialOp>(block.getTerminator());
+  if (yield.getValues().size() != partials.size())
+    return emitOpError("yield_partial yields ")
+           << yield.getValues().size() << " values but the future carries "
+           << partials.size() << " partial type(s)";
+  for (auto [i, val] : llvm::enumerate(yield.getValues()))
+    if (val.getType() != partials[i])
+      return emitOpError("yield_partial operand #")
+             << i << " type " << val.getType()
+             << " does not match future partial type " << partials[i];
+
+  // The producer set's symbol must be the group index `g`; groups set has none.
+  if (getGroups().getValue().getNumSymbols() != 0)
+    return emitOpError("`groups` integer set must not have symbols");
+
+  // TODO(inter-tile): polyhedral checks via Presburger -- disjointness of
+  // producer_tiles_per_group across distinct group indices in `groups`.
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// InterTileReduceOp
+//===----------------------------------------------------------------------===//
+
+// Syntax:
+//   ktdp.inter_tile_reduce(%future)
+//       consumer_tiles_per_group = <set>, groups = <set>,
+//       [producer_dependency_per_consumer = <set>,]
+//       identity(%id_1 : T_p_1, ..., %id_N : T_p_N)
+//       : !ktdp.tile_future<...> -> T_r_1, ..., T_r_N
+//       { ^bb0(...2N args...): ktdp.yield_reduced ... }
+ParseResult InterTileReduceOp::parse(OpAsmParser& parser,
+                                     OperationState& result) {
+  OpAsmParser::UnresolvedOperand future;
+  if (parser.parseLParen() || parser.parseOperand(future) ||
+      parser.parseRParen())
+    return failure();
+
+  IntegerSetAttr consumerSet, groupsSet;
+  if (parser.parseKeyword("consumer_tiles_per_group") || parser.parseEqual() ||
+      parser.parseAttribute(consumerSet, "consumer_tiles_per_group",
+                            result.attributes) ||
+      parser.parseComma() || parser.parseKeyword("groups") ||
+      parser.parseEqual() ||
+      parser.parseAttribute(groupsSet, "groups", result.attributes))
+    return failure();
+
+  // Optional producer_dependency_per_consumer.
+  if (succeeded(parser.parseOptionalComma())) {
+    // Either the optional dependency set or directly the identity list.
+    if (succeeded(
+            parser.parseOptionalKeyword("producer_dependency_per_consumer"))) {
+      IntegerSetAttr depSet;
+      if (parser.parseEqual() ||
+          parser.parseAttribute(depSet, "producer_dependency_per_consumer",
+                                result.attributes) ||
+          parser.parseComma())
+        return failure();
+    }
+  }
+
+  // identity(%id : T, ...)
+  SmallVector<OpAsmParser::UnresolvedOperand> identityOperands;
+  SmallVector<Type> identityTypes;
+  if (parser.parseKeyword("identity") ||
+      parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() {
+        OpAsmParser::UnresolvedOperand op;
+        Type t;
+        if (parser.parseOperand(op) || parser.parseColonType(t)) return failure();
+        identityOperands.push_back(op);
+        identityTypes.push_back(t);
+        return success();
+      }))
+    return failure();
+
+  if (parser.parseOptionalAttrDict(result.attributes)) return failure();
+
+  Type futureType;
+  SmallVector<Type> resultTypes;
+  if (parser.parseColonType(futureType) || parser.parseArrow() ||
+      parser.parseTypeList(resultTypes))
+    return failure();
+
+  if (parser.resolveOperand(future, futureType, result.operands) ||
+      parser.resolveOperands(identityOperands, identityTypes,
+                             parser.getNameLoc(), result.operands))
+    return failure();
+  result.addTypes(resultTypes);
+
+  // Operand segment sizes: 1 future + N identities.
+  result.addAttribute(
+      "operandSegmentSizes",
+      parser.getBuilder().getDenseI32ArrayAttr(
+          {1, static_cast<int32_t>(identityOperands.size())}));
+
+  Region* combiner = result.addRegion();
+  if (parser.parseRegion(*combiner, /*arguments=*/{}))
+    return failure();
+  return success();
+}
+
+void InterTileReduceOp::print(OpAsmPrinter& p) {
+  p << '(' << getFuture() << ") consumer_tiles_per_group = "
+    << getConsumerTilesPerGroupAttr() << ", groups = " << getGroupsAttr();
+  if (auto dep = getProducerDependencyPerConsumerAttr())
+    p << ", producer_dependency_per_consumer = " << dep;
+  p << ", identity(";
+  llvm::interleaveComma(getIdentity(), p, [&](Value v) {
+    p << v << " : " << v.getType();
+  });
+  p << ')';
+  p.printOptionalAttrDict(
+      (*this)->getAttrs(),
+      /*elidedAttrs=*/{"consumer_tiles_per_group", "groups",
+                       "producer_dependency_per_consumer",
+                       "operandSegmentSizes"});
+  p << " : " << getFuture().getType() << " -> ";
+  llvm::interleaveComma(getResultTypes(), p);
+  p << ' ';
+  p.printRegion(getCombiner(), /*printEntryBlockArgs=*/true,
+                /*printBlockTerminators=*/true);
+}
+
+LogicalResult InterTileReduceOp::verify() {
+  ArrayRef<Type> partials = getPartialTypes();
+  size_t n = partials.size();
+
+  // identity: one per role, matching the partial type T_p_i.
+  if (getIdentity().size() != n)
+    return emitOpError("expected ")
+           << n << " identity operand(s), got " << getIdentity().size();
+  for (auto [i, id] : llvm::enumerate(getIdentity()))
+    if (id.getType() != partials[i])
+      return emitOpError("identity #")
+             << i << " type " << id.getType()
+             << " must match future partial type " << partials[i];
+
+  // results: one per role.
+  if (getResults().size() != n)
+    return emitOpError("expected ")
+           << n << " result(s), got " << getResults().size();
+
+  // Reducer region: 2N args (lhs_1..lhs_N, rhs_1..rhs_N) each of type T_p_i.
+  Block& block = getCombiner().front();
+  if (block.getNumArguments() != 2 * n)
+    return emitOpError("reducer region must take 2*")
+           << n << " arguments, got " << block.getNumArguments();
+  for (size_t i = 0; i < n; ++i) {
+    if (block.getArgument(i).getType() != partials[i] ||
+        block.getArgument(n + i).getType() != partials[i])
+      return emitOpError("reducer region argument pair #")
+             << i << " must both have partial type " << partials[i];
+  }
+
+  // Terminator yields N values of the partial types T_p_i.
+  auto yield = cast<YieldReducedOp>(block.getTerminator());
+  if (yield.getValues().size() != n)
+    return emitOpError("yield_reduced yields ")
+           << yield.getValues().size() << " values but expected " << n;
+  for (auto [i, val] : llvm::enumerate(yield.getValues()))
+    if (val.getType() != partials[i])
+      return emitOpError("yield_reduced operand #")
+             << i << " type " << val.getType()
+             << " must match partial type " << partials[i];
+
+  // Collapsed-axis shape rule: each result T_r_i is T_p_i with one
+  // within-group tile axis removed. Structural check: result rank is one less
+  // than the partial rank and the surviving dims are a subsequence of the
+  // partial dims (the removed axis must be a unit dimension).
+  for (size_t i = 0; i < n; ++i) {
+    auto pTy = cast<RankedTensorType>(partials[i]);
+    auto rTy = dyn_cast<RankedTensorType>(getResult(i).getType());
+    if (!rTy)
+      return emitOpError("result #") << i << " must be a ranked tensor";
+    if (rTy.getRank() != pTy.getRank() - 1)
+      return emitOpError("result #")
+             << i << " rank (" << rTy.getRank()
+             << ") must be one less than partial rank (" << pTy.getRank()
+             << "); exactly one within-group tile axis is collapsed";
+    // The collapsed axis must be a unit dim; the remaining dims must match the
+    // result dims in order.
+    ArrayRef<int64_t> pShape = pTy.getShape();
+    ArrayRef<int64_t> rShape = rTy.getShape();
+    bool found = false;
+    for (int64_t axis = 0; axis < pTy.getRank(); ++axis) {
+      if (pShape[axis] != 1) continue;
+      SmallVector<int64_t> collapsed(pShape.begin(), pShape.end());
+      collapsed.erase(collapsed.begin() + axis);
+      if (ArrayRef<int64_t>(collapsed) == rShape) {
+        found = true;
+        break;
+      }
+    }
+    if (!found)
+      return emitOpError("result #")
+             << i << " shape does not match partial #" << i
+             << " with a single unit within-group tile axis collapsed";
+  }
+
+  // TODO(inter-tile): polyhedral checks via Presburger -- `groups` matches the
+  // producing op; subset/coverage of producer_dependency_per_consumer.
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 #define GET_OP_CLASSES
