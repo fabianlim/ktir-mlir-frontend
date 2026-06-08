@@ -23,12 +23,16 @@
 
 #include "Ktdp/KtdpTypes.hpp"
 #include "llvm/ADT/TypeSwitch.h"
+#include "mlir/Analysis/FlatLinearValueConstraints.h"
+#include "mlir/Analysis/Presburger/IntegerRelation.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/IntegerSet.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 
 using namespace mlir;
 using namespace mlir::ktdp;
+using presburger::IntegerPolyhedron;
 
 //===----------------------------------------------------------------------===//
 // ConstructAccessTilesOp
@@ -1223,6 +1227,23 @@ LogicalResult RuntimeArgExtractOp::verify() {
 // InterTileProduceOp
 //===----------------------------------------------------------------------===//
 
+namespace {
+
+// Build the polyhedron of producer tile ids for a single concrete group value
+// `g`, over the tile-id dimension. `producerSet` is the parameterized set
+// `(i)[g]`; we materialize it as constraints and pin its lone symbol `g` to
+// `gVal`, leaving an IntegerPolyhedron over `i`.
+IntegerPolyhedron producerTilesForGroup(IntegerSet producerSet, int64_t gVal) {
+  FlatLinearValueConstraints cst(producerSet);
+  // The symbol introduced by the integer set is the group index `g`. Fix it to
+  // the concrete value and eliminate it, leaving the tile-id dimension(s).
+  unsigned symOffset = cst.getVarKindOffset(presburger::VarKind::Symbol);
+  cst.setAndEliminate(symOffset, {gVal});
+  return IntegerPolyhedron(cst);
+}
+
+}  // namespace
+
 // Syntax:
 //   ktdp.inter_tile_produce
 //       producer_tiles_per_group = <set>, groups = <set>
@@ -1297,11 +1318,50 @@ LogicalResult InterTileProduceOp::verify() {
              << " does not match future partial type " << partials[i];
 
   // The producer set's symbol must be the group index `g`; groups set has none.
-  if (getGroups().getValue().getNumSymbols() != 0)
+  IntegerSet groupsSet = getGroups().getValue();
+  IntegerSet producerSet = getProducerTilesPerGroup().getValue();
+  if (groupsSet.getNumSymbols() != 0)
     return emitOpError("`groups` integer set must not have symbols");
+  if (groupsSet.getNumDims() != 1)
+    return emitOpError("`groups` integer set must have a single dimension (g)");
+  if (producerSet.getNumSymbols() != 1)
+    return emitOpError("`producer_tiles_per_group` must have exactly one symbol "
+                       "(the group index g)");
 
-  // TODO(inter-tile): polyhedral checks via Presburger -- disjointness of
-  // producer_tiles_per_group across distinct group indices in `groups`.
+  // Disjointness invariant (§2.1): producer tile sets for distinct groups must
+  // not overlap. Enumerated check -- only when the group range is statically
+  // bounded; otherwise defer (TODO: symbolic emptiness over g1 != g2).
+  {
+    FlatLinearValueConstraints groupsCst(groupsSet);
+    std::optional<int64_t> lo =
+        groupsCst.getConstantBound64(presburger::BoundType::LB, /*pos=*/0);
+    std::optional<int64_t> hi =
+        groupsCst.getConstantBound64(presburger::BoundType::UB, /*pos=*/0);
+    if (lo && hi) {
+      // Concrete group values in `groups`. The [lo, hi] box may be looser than
+      // the set (e.g. strided ranges), so keep only g actually in `groups`.
+      SmallVector<int64_t> groupVals;
+      for (int64_t g = *lo; g <= *hi; ++g) {
+        FlatLinearValueConstraints gCst(groupsSet);
+        IntegerPolyhedron gPoly(gCst);
+        gPoly.setAndEliminate(gPoly.getVarKindOffset(presburger::VarKind::SetDim),
+                              {g});
+        if (!gPoly.isIntegerEmpty()) groupVals.push_back(g);
+      }
+      for (size_t a = 0; a < groupVals.size(); ++a)
+        for (size_t b = a + 1; b < groupVals.size(); ++b) {
+          IntegerPolyhedron pa = producerTilesForGroup(producerSet, groupVals[a]);
+          IntegerPolyhedron pb = producerTilesForGroup(producerSet, groupVals[b]);
+          if (!pa.intersect(pb).isIntegerEmpty())
+            return emitOpError("producer_tiles_per_group for groups ")
+                   << groupVals[a] << " and " << groupVals[b]
+                   << " are not disjoint";
+        }
+    }
+    // else: unbounded group range -- defer to a future symbolic check.
+  }
+
+  // TODO(inter-tile): symbolic disjointness check for unbounded group ranges.
   return success();
 }
 
