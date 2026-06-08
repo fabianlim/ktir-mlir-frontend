@@ -42,7 +42,8 @@ void KtdpDialect::initialize() {
   >();
   addTypes<
     AccessTileType,
-    RuntimeArgType
+    RuntimeArgType,
+    TileFutureType
   >();
   addAttributes<
     SpyreMemorySpaceAttr

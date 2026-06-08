@@ -1,0 +1,84 @@
+// RUN: ktir-opt "%s" -split-input-file -verify-diagnostics
+
+// Note: -split-input-file parses each chunk independently, so affine-set
+// aliases are declared per chunk.
+
+// -----
+// yield_partial arity must match the future's partial count.
+#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#ag = affine_set<(g) : (g == 0)>
+func.func @bad_produce_arity(%p: tensor<1x64xf16>) {
+  // expected-error @below {{yield_partial yields 1 values but the future carries 2 partial type(s)}}
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g, groups = #ag
+      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, tensor<1x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
+  return
+}
+
+// -----
+// future result must have exactly one use.
+#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#ag = affine_set<(g) : (g == 0)>
+func.func @bad_multiple_uses(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) {
+  // expected-error @below {{future result must have exactly one use}}
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g, groups = #ag
+      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
+  %r0 = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, groups = #ag, identity(%id : tensor<1x64xf16>)
+      : !ktdp.tile_future<tensor<1x64xf16>> -> tensor<64xf16>
+  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
+  %r1 = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, groups = #ag, identity(%id : tensor<1x64xf16>)
+      : !ktdp.tile_future<tensor<1x64xf16>> -> tensor<64xf16>
+  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
+  return
+}
+
+// -----
+// identity type must match the partial type.
+#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#ag = affine_set<(g) : (g == 0)>
+func.func @bad_identity_type(%p: tensor<1x64xf16>, %id: tensor<2x64xf16>) -> tensor<64xf16> {
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g, groups = #ag
+      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
+  // expected-error @below {{identity #0 type 'tensor<2x64xf16>' must match future partial type 'tensor<1x64xf16>'}}
+  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, groups = #ag, identity(%id : tensor<2x64xf16>)
+      : !ktdp.tile_future<tensor<1x64xf16>> -> tensor<64xf16>
+  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
+  return %r : tensor<64xf16>
+}
+
+// -----
+// result rank must be exactly one less than the partial rank.
+#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#ag = affine_set<(g) : (g == 0)>
+func.func @bad_collapse_rank(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<1x64xf16> {
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g, groups = #ag
+      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
+  // expected-error @below {{result #0 rank (2) must be one less than partial rank (2)}}
+  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, groups = #ag, identity(%id : tensor<1x64xf16>)
+      : !ktdp.tile_future<tensor<1x64xf16>> -> tensor<1x64xf16>
+  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
+  return %r : tensor<1x64xf16>
+}
+
+// -----
+// collapsed axis must be a unit dimension (96 cannot collapse to 64).
+#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#ag = affine_set<(g) : (g == 0)>
+func.func @bad_collapse_nonunit(%p: tensor<96x64xf16>, %id: tensor<96x64xf16>) -> tensor<64xf16> {
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g, groups = #ag
+      : tensor<96x64xf16> -> !ktdp.tile_future<tensor<96x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<96x64xf16> }
+  // expected-error @below {{result #0 shape does not match partial #0 with a single unit within-group tile axis collapsed}}
+  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, groups = #ag, identity(%id : tensor<96x64xf16>)
+      : !ktdp.tile_future<tensor<96x64xf16>> -> tensor<64xf16>
+  { ^bb0(%l: tensor<96x64xf16>, %rr: tensor<96x64xf16>): ktdp.yield_reduced %l : tensor<96x64xf16> }
+  return %r : tensor<64xf16>
+}
+
+// -----
+// tile_future partial types must be ranked tensors.
+// expected-error @below {{tile_future partial type must be a ranked tensor, but got: 'index'}}
+func.func @bad_future_scalar(%a: !ktdp.tile_future<index>) { return }
