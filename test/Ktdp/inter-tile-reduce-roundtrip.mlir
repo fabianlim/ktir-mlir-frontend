@@ -40,6 +40,34 @@ func.func @reduce_single_role(%partial: tensor<1x64xf16>,
 }
 
 // -----
+// Reduce-to-one: 4 producer tiles per group, only tile 4g consumes the result.
+// Supported (|C| == 1, C subset of P); see §4.1 / open question Q1.
+// -----
+
+#r2o_prod = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#r2o_cons = affine_set<(i)[g] : (i - 4*g == 0)>
+#r2o_grp  = affine_set<(g) : (g == 0)>
+
+// CHECK-LABEL: func.func @reduce_to_one
+func.func @reduce_to_one(%partial: tensor<1x64xf16>,
+                         %add_id: tensor<1x64xf16>) -> tensor<64xf16> {
+  %f = ktdp.inter_tile_produce
+      producer_tiles_per_group = #r2o_prod, groups = #r2o_grp
+      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %partial : tensor<1x64xf16> }
+  // CHECK: ktdp.inter_tile_reduce
+  %r = ktdp.inter_tile_reduce(%f)
+      consumer_tiles_per_group = #r2o_cons, groups = #r2o_grp,
+      identity(%add_id : tensor<1x64xf16>)
+      : !ktdp.tile_future<tensor<1x64xf16>> -> tensor<64xf16>
+  { ^bb0(%lhs: tensor<1x64xf16>, %rhs: tensor<1x64xf16>):
+      %s = linalg.add ins(%lhs, %rhs : tensor<1x64xf16>, tensor<1x64xf16>)
+                      outs(%lhs : tensor<1x64xf16>) -> tensor<1x64xf16>
+      ktdp.yield_reduced %s : tensor<1x64xf16> }
+  return %r : tensor<64xf16>
+}
+
+// -----
 // Multi-group reduce (collapse interior unit axis, preserve the group axis).
 // docs/inter-tile-communication.md §8.2.2.
 // -----
