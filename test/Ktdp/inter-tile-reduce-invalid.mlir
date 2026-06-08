@@ -82,3 +82,16 @@ func.func @bad_collapse_nonunit(%p: tensor<96x64xf16>, %id: tensor<96x64xf16>) -
 // tile_future partial types must be ranked tensors.
 // expected-error @below {{tile_future partial type must be a ranked tensor, but got: 'index'}}
 func.func @bad_future_scalar(%a: !ktdp.tile_future<index>) { return }
+
+// -----
+// producer tile sets for distinct groups must be disjoint (§2.1).
+// tiles 3g..3g+3 over groups 0,1: g=0 -> {0,1,2,3}, g=1 -> {3,4,5,6}; tile 3 overlaps.
+#prod_overlap = affine_set<(i)[g] : (i - 3*g >= 0, -i + 3*g + 3 >= 0)>
+#two_groups   = affine_set<(g) : (g >= 0, -g + 1 >= 0)>
+func.func @bad_producer_overlap(%p: tensor<1x64xf16>) {
+  // expected-error @below {{producer_tiles_per_group for groups 0 and 1 are not disjoint}}
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #prod_overlap, groups = #two_groups
+      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
+  return
+}
