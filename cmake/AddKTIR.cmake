@@ -12,6 +12,7 @@ add_custom_target(ktir-headers)
 # Creates a TableGen target and adds it to ktir-headers.
 function(add_ktir_tablegen_target name)
   add_public_tablegen_target(${name})
+  set(TABLEGEN_OUTPUT "")
   add_dependencies(ktir-headers ${name})
 endfunction()
 
@@ -30,19 +31,18 @@ endfunction()
 
 # Creates an MLIR TableGen documentation target and adds it to ktir-doc.
 function(add_ktir_doc doc_filename output_file output_directory command)
-  # This is a copy from AddMLIR.cmake, which uses the right targets.
   set(LLVM_TARGET_DEFINITIONS ${doc_filename}.td)
+  set(TABLEGEN_OUTPUT "")
   tablegen(MLIR ${output_file}.md ${command} -allow-hugo-specific-features ${ARGN})
-  set(GEN_DOC_FILE ${KTIR_BINARY_DIR}/docs/${output_directory}${output_file}.md)
+  set(_output "${KTIR_BINARY_DIR}/doc/${output_directory}${output_file}.md")
   add_custom_command(
-          OUTPUT ${GEN_DOC_FILE}
-          COMMAND ${CMAKE_COMMAND} -E copy
-                  ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.md
-                  ${GEN_DOC_FILE}
-          DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${output_file}.md
+    OUTPUT "${_output}"
+    COMMAND ${CMAKE_COMMAND} -E copy "${TABLEGEN_OUTPUT}" "${_output}"
+    DEPENDS "${TABLEGEN_OUTPUT}"
   )
-  add_custom_target(${output_file}DocGen DEPENDS ${GEN_DOC_FILE})
-  add_dependencies(ktir-doc ${output_file}DocGen)
+  set_source_files_properties(${_output} PROPERTIES GENERATED TRUE)
+  add_custom_target("KTIR${output_file}DocGen" DEPENDS "${_output}")
+  add_dependencies(ktir-doc "KTIR${output_file}DocGen")
 endfunction()
 
 #
@@ -53,12 +53,12 @@ endfunction()
 macro(add_ktir_executable name)
   # The caller is responsible for determining when this should be built and
   # how it is installed. See add_ktir_tool for tool executables.
-  add_llvm_executable(${name} ${ARGN})
+  add_llvm_executable(${ARGV})
 endmacro()
 
 # Creates an executable target and adds it to the install target.
 macro(add_ktir_tool name)
-  cmake_parse_arguments(ARG "DISABLE_INSTALL" "" "" ${ARGN})
+  cmake_parse_arguments(ARG "DISABLE_INSTALL" "EXPORT_NAME" "" ${ARGN})
 
   if(NOT KTIR_BUILD_TOOLS)
     # Tools are always included, but not necessarily built.
@@ -68,43 +68,46 @@ macro(add_ktir_tool name)
   add_ktir_executable(${name} ${ARG_UNPARSED_ARGUMENTS})
 
   if(KTIR_BUILD_TOOLS AND NOT ARG_DISABLE_INSTALL AND NOT DISABLE_INSTALL)
-    # This is a copy from AddMLIR.cmake, which uses generic LLVM CMake.
-    get_target_export_arg(${name} KTIR export_to_ktirtargets)
+    if (DEFINED ARG_EXPORT_NAME)
+      set_target_properties(${name} PROPERTIES EXPORT_NAME ${ARG_EXPORT_NAME})
+      add_executable("${PROJECT_NAME}::${ARG_EXPORT_NAME}" ALIAS ${name})
+    endif()
+
     install(TARGETS ${name}
       COMPONENT ${name}
-      ${export_to_ktirtargets}
-      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+      EXPORT ${PROJECT_NAME}
     )
 
-    if(NOT CMAKE_CONFIGURATION_TYPES)
-      add_llvm_install_targets(install-${name}
-        DEPENDS ${name}
-        COMPONENT ${name}
-      )
-    endif()
     set_property(GLOBAL APPEND PROPERTY KTIR_EXPORTS ${name})
   endif()
 endmacro()
 
 # Creates a library target and adds it to the install target.
 function(add_ktir_library name)
-  cmake_parse_arguments(ARG "DISABLE_INSTALL" "" "" ${ARGN})
+  cmake_parse_arguments(ARG "DISABLE_INSTALL" "EXPORT_NAME" "" ${ARGN})
 
-  add_mlir_library(${ARGV} DISABLE_INSTALL EXCLUDE_FROM_LIBMLIR)
+  add_mlir_library(${name} 
+    ${ARG_UNPARSED_ARGUMENTS} 
+    DISABLE_INSTALL 
+    EXCLUDE_FROM_LIBMLIR
+  )
 
   if(NOT ARG_DISABLE_INSTALL)
-    add_ktir_library_install(${name})
+    add_ktir_library_install(${name} ${ARGN})
   endif()
 endfunction()
 
 # Creates a library target and adds it to the install and ktir-capi targets.
 function(add_ktir_public_c_api_library name)
-  cmake_parse_arguments(ARG "DISABLE_INSTALL" "" "" ${ARGN})
+  cmake_parse_arguments(ARG "DISABLE_INSTALL" "EXPORT_NAME" "" ${ARGN})
 
-  add_mlir_public_c_api_library(${ARGV} DISABLE_INSTALL)
+  add_mlir_public_c_api_library(${name}
+    ${ARG_UNPARSED_ARGUMENTS} 
+    DISABLE_INSTALL
+  )
 
   if(NOT ARG_DISABLE_INSTALL AND NOT DISABLE_INSTALL)
-    add_ktir_library_install(${name})
+    add_ktir_library_install(${name} ${ARGN})
   endif()
 
   add_dependencies(ktir-capi ${name})
@@ -112,43 +115,36 @@ endfunction()
 
 # Creates a library target and appends it to the KTIR_CONVERSION_LIBS property.
 function(add_ktir_conversion_library name)
-  add_ktir_library(${ARGV} DEPENDS ktir-headers)
+  add_ktir_library(${ARGV})
   set_property(GLOBAL APPEND PROPERTY KTIR_CONVERSION_LIBS ${name})
 endfunction()
 
 # Creates a library target and appends it to the KTIR_DIALECT_LIBS property.
 function(add_ktir_dialect_library name)
-  add_ktir_library(${ARGV} DEPENDS ktir-headers)
+  add_ktir_library(${ARGV})
   set_property(GLOBAL APPEND PROPERTY KTIR_DIALECT_LIBS ${name})
 endfunction()
 
 # Creates a library target and appends it to the KTIR_EXTENSION_LIBS property.
 function(add_ktir_extension_library name)
-  add_ktir_library(${ARGV} DEPENDS ktir-headers)
+  add_ktir_library(${ARGV})
   set_property(GLOBAL APPEND PROPERTY KTIR_EXTENSION_LIBS ${name})
 endfunction()
 
 # Creates an install target for the given library target.
 function(add_ktir_library_install name)
-  if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-    # This is a copy from AddMLIR.cmake, which uses generic LLVM CMake.
-    get_target_export_arg(${name} KTIR export_to_ktirtargets UMBRELLA ktir-libraries)
-    install(TARGETS ${name}
-      COMPONENT ${name}
-      ${export_to_ktirtargets}
-      LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-      ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-      OBJECTS DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-    )
+  cmake_parse_arguments(ARG "" "EXPORT_NAME" "" ${ARGN})
 
-    if (NOT LLVM_ENABLE_IDE)
-      add_llvm_install_targets(install-${name}
-        DEPENDS ${name}
-        COMPONENT ${name}
-      )
-    endif()
-  set_property(GLOBAL APPEND PROPERTY KTIR_LIBS ${name})
+  if (DEFINED ARG_EXPORT_NAME)
+    set_target_properties(${name} PROPERTIES EXPORT_NAME ${ARG_EXPORT_NAME})
+    add_library("${PROJECT_NAME}::${ARG_EXPORT_NAME}" ALIAS ${name})
   endif()
+
+  install(TARGETS ${name}
+    EXPORT ${PROJECT_NAME}
+    COMPONENT ${name}
+  )
+  
+  set_property(GLOBAL APPEND PROPERTY KTIR_LIBS ${name})
   set_property(GLOBAL APPEND PROPERTY KTIR_EXPORTS ${name})
 endfunction()

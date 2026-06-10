@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
+
+check_required_components(@PROJECT_NAME@)
+
+# Super hacky workaround for not having properly declared include directories.
+include_directories(SYSTEM ${PACKAGE_PREFIX_DIR}/include)

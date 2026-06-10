@@ -1,9 +1,12 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 # Add custom modules to the search path.
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-project(ktir-mlir-frontend LANGUAGES C CXX)
+project(KTIR 
+  VERSION 0.2
+  LANGUAGES C CXX
+)
 
 # Set defaults for compiler features and options.
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
@@ -11,13 +14,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 set(LLVM_LIT_ARGS "-sv" CACHE STRING "Default options for lit")
 
-# Detect if this is (supposed to be) a stand-alone build.
-set(KTIR_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING "" FORCE)
-if(NOT DEFINED KTIR_STAND_ALONE)
-  string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${KTIR_SOURCE_DIR}" KTIR_STAND_ALONE)
-endif()
+# Install instructions and packaging, needs to come first for RPATH.
+add_subdirectory(cmake)
 
-if(KTIR_STAND_ALONE)
+if(PROJECT_IS_TOP_LEVEL)
   # Find MLIR.
   find_package(MLIR REQUIRED CONFIG)
   message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
@@ -38,16 +38,16 @@ if(KTIR_STAND_ALONE)
   add_definitions(${LLVM_DEFINITIONS})
 
   # Set shared output directories.
-  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
-  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
-
-  # Declare new CMake build options and their defaults.
-  option(KTIR_ENABLE_PYTHON_BINDINGS "Build Python bindings" NO)
-  option(KTIR_BUILD_TOOLS "Build tool executables" YES)
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
+  set(LLVM_LIBRARY_OUTPUT_INTDIR ${PROJECT_BINARY_DIR}/lib)
+  set(LLVM_RUNTIME_OUTPUT_INTDIR ${PROJECT_BINARY_DIR}/bin)
 endif()
+
+# Declare the CMake build options and their defaults.
+option(KTIR_ENABLE_PYTHON_BINDINGS "Build Python bindings" NO)
+option(KTIR_BUILD_TOOLS "Build tool executables" ${PROJECT_IS_TOP_LEVEL})
 
 if(TARGET MLIR AND NOT DEFINED MLIR_LINK_MLIR_DYLIB)
   # As a workaround for MLIRConfig.cmake not exporting this variable, we will
@@ -61,17 +61,6 @@ endif()
 if(MLIR_LINK_MLIR_DYLIB)
   get_target_property(_mlir_dso MLIR LOCATION)
   message(STATUS "Linking against: ${_mlir_dso}")
-endif()
-
-# Ensure project-specific variables are set, regardless of how we got here.
-if(NOT DEFINED KTIR_BINARY_DIR)
-  set(KTIR_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE STRING "" FORCE)
-endif()
-if(NOT DEFINED KTIR_ENABLE_PYTHON_BINDINGS)
-  set(KTIR_ENABLE_PYTHON_BINDINGS OFF CACHE BOOL "" FORCE)
-endif()
-if(NOT DEFINED KTIR_BUILD_TOOLS)
-  set(KTIR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 endif()
 
 # Setup Python binding variables.
@@ -107,15 +96,4 @@ add_subdirectory(tools)
 add_subdirectory(test)
 if(KTIR_ENABLE_PYTHON_BINDINGS)
   add_subdirectory(python)
-endif()
-
-# Additional installation instructions.
-
-if(KTIR_STAND_ALONE)
-  if(LLVM_LINK_LLVM_DYLIB)
-    install(IMPORTED_RUNTIME_ARTIFACTS LLVM)
-  endif()
-  if(MLIR_LINK_MLIR_DYLIB)
-    install(IMPORTED_RUNTIME_ARTIFACTS MLIR)
-  endif()
 endif()

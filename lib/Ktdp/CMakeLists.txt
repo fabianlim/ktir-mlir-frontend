@@ -8,6 +8,9 @@ add_ktir_dialect_library(KTIRKtdpDialect
     ${PROJECT_SOURCE_DIR}/include/Ktdp
     ${PROJECT_BINARY_DIR}/include/Ktdp
 
+  EXPORT_NAME
+    KtdpDialect
+
   DEPENDS
     KTIRKtdpAttrInterfacesIncGen
     KTIRKtdpAttrsIncGen
