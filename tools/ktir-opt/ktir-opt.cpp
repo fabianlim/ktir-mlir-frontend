@@ -2,24 +2,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/IR/Dialect.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllExtensions.h"
-#include "mlir/InitAllPasses.h"
-#include "mlir/Tools/mlir-opt/MlirOptMain.h"
+#include <mlir/IR/MLIRContext.h>
+#include <mlir/InitAllDialects.h>
+#include <mlir/InitAllExtensions.h>
+#include <mlir/InitAllPasses.h>
+#include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
 #include "Ktdp/KtdpDialect.hpp"
 
 using namespace mlir;
 
-int main(int argc, char **argv) {
+auto main(int argc, char **argv) -> int {
   registerAllPasses();
 
   DialectRegistry registry;
-  registry.insert<mlir::ktdp::KtdpDialect>();
+  registry.insert<ktdp::KtdpDialect>();
   registerAllDialects(registry);
   registerAllExtensions(registry);
 
   return asMainReturnCode(
-      MlirOptMain(argc, argv, "KTIR optimizer driver\n", registry));
+      MlirOptMain(argc, argv, "KTIR modular optimizer driver\n", registry));
 }

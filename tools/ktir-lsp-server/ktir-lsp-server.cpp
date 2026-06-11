@@ -2,17 +2,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/IR/Dialect.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/Tools/mlir-lsp-server/MlirLspServerMain.h"
+#include <mlir/InitAllDialects.h>
+#include <mlir/InitAllExtensions.h>
+#include <mlir/Tools/mlir-lsp-server/MlirLspServerMain.h>
+#include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
 #include "Ktdp/KtdpDialect.hpp"
 
-int main(int argc, char **argv) {
-  mlir::DialectRegistry registry;
+using namespace mlir;
 
-  registry.insert<mlir::ktdp::KtdpDialect>();
-  mlir::registerAllDialects(registry);
+auto main(int argc, char **argv) -> int {
+  DialectRegistry registry;
+  registry.insert<ktdp::KtdpDialect>();
+  registerAllDialects(registry);
+  registerAllExtensions(registry);
 
-  return failed(mlir::MlirLspServerMain(argc, argv, registry));
+  return asMainReturnCode(MlirLspServerMain(argc, argv, registry));
 }
