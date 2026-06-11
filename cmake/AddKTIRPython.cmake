@@ -1,10 +1,10 @@
 include(AddMLIRPython)
 
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
-set(KTIR_PYTHON_PACKAGE_DIR 
-  "${KTIR_BINARY_DIR}/${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
+set(PYTHON_PACKAGE_DIR 
+  "${PROJECT_BINARY_DIR}/${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
 )
-file(MAKE_DIRECTORY "${KTIR_PYTHON_PACKAGE_DIR}")
+file(MAKE_DIRECTORY "${PYTHON_PACKAGE_DIR}")
 
 # FIXME: This is a horrible work-around. Unfortunately, MLIR will not set the
 #        INSTALL_RPATH when BUILD_SHARED_LIBS is off, even though we need to
@@ -42,7 +42,7 @@ if(MLIR_PYTHON_STUBGEN_ENABLED)
       OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/type_stubs/_mlir_libs"
       OUTPUTS "${ARG_OUTPUTS}"
       DEPENDS_TARGET_SRC_DEPS "${_extension_sources}"
-      IMPORT_PATHS "${KTIR_PYTHON_PACKAGE_DIR}/..;${ARG_IMPORT_PATHS}"
+      IMPORT_PATHS "${PYTHON_PACKAGE_DIR}/..;${ARG_IMPORT_PATHS}"
     )
 
     set(_generated_outputs "${ARG_OUTPUTS}")
