@@ -76,37 +76,8 @@ if(MLIR_PYTHON_STUBGEN_ENABLED)
   )
 endif()
 
-################################################################################
-# Generate packages and shared library
-################################################################################
-
-set(_source_components
-  MLIRPythonSources.Core
-  MLIRPythonSources.Dialects.builtin
-  
-  KTIRPythonSources
-  KTIRPythonExtensions
-)
-
-if(MLIR_PYTHON_STUBGEN_ENABLED)
-  list(APPEND _source_components MLIRPythonExtension.Core.type_stub_gen)
-endif()
-
-add_mlir_python_common_capi_library(KTIRPythonCAPI
-  INSTALL_COMPONENT KTIRPythonModules
-  INSTALL_DESTINATION "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}/_mlir_libs"
-  OUTPUT_DIRECTORY "${PYTHON_PACKAGE_DIR}/_mlir_libs"
-  DECLARED_SOURCES ${_source_components}
-)
-
-ktir_python_set_rpath(KTIRPythonCAPI 
-  RELATIVE_INSTALL_ROOT "../../../.." # NOTE: This is fragile.
-)
-
-add_mlir_python_modules(KTIRPythonModules
-  ROOT_PREFIX "${PYTHON_PACKAGE_DIR}"
-  INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
-  DECLARED_SOURCES ${_source_components}
-  COMMON_CAPI_LINK_LIBS
-    KTIRPythonCAPI
-)
+set(EXCLUDE_FROM_ALL)
+if (NOT PROJECT_IS_TOP_LEVEL)
+  set(EXCLUDE_FROM_ALL EXCLUDE_FROM_ALL)
+endif ()
+add_subdirectory(mlir_ktdp ${EXCLUDE_FROM_ALL})

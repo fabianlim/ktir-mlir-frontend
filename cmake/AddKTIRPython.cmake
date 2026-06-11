@@ -6,27 +6,23 @@ set(PYTHON_PACKAGE_DIR
 )
 file(MAKE_DIRECTORY "${PYTHON_PACKAGE_DIR}")
 
-# FIXME: This is a horrible work-around. Unfortunately, MLIR will not set the
-#        INSTALL_RPATH when BUILD_SHARED_LIBS is off, even though we need to
-#        link against the DSO. Since we're installing it into the lib/ dir, we
-#        fix it by doing it manually.
-function(ktir_python_set_rpath target)
-  cmake_parse_arguments(ARG "" "RELATIVE_INSTALL_ROOT" "" ${ARGN})
-
-  if(LLVM_LINK_LLVM_DYLIB OR MLIR_LINK_MLIR_DYLIB OR BUILD_SHARED_LIBS)
-    if(APPLE)
-      set(_origin_prefix "@loader_path")
-    elseif(UNIX)
-      set(_origin_prefix "\$ORIGIN")
-    else()
-      return()
-    endif()
-
-    set_property(TARGET ${target} APPEND PROPERTY
-      INSTALL_RPATH 
-      "${_origin_prefix}/${ARG_RELATIVE_INSTALL_ROOT}/lib${LLVM_LIBDIR_SUFFIX}"
+# Patch the MLIR function of the same name to fix install targets.
+function(_mlir_python_install_sources name source_root_dir destination)
+  foreach(source_relative_path ${ARGN})
+    get_filename_component(
+      dest_relative_dir "${source_relative_path}" DIRECTORY
+      BASE_DIR "${source_root_dir}"
     )
-  endif()
+    install(
+      FILES "${source_root_dir}/${source_relative_path}"
+      DESTINATION "${destination}/${dest_relative_dir}"
+      COMPONENT ${PROJECT_NAME}-python-sources
+    )
+  endforeach()
+  install(TARGETS ${name}
+    EXPORT ${PROJECT_NAME}
+    COMPONENT ${PROJECT_NAME}-python-sources
+  )
 endfunction()
 
 if(MLIR_PYTHON_STUBGEN_ENABLED)
