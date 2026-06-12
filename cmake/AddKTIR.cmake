@@ -61,7 +61,7 @@ macro(add_ktir_tool name)
 
   if(KTIR_BUILD_TOOLS AND EXPORT_NAME)
     # To unify the interface for all consumers, create an alias target.
-    set_target_properties(${name} PROPERTIES EXPORT_NAME ${ARG_EXPORT_NAME})
+    set_target_properties(${name} PROPERTIES ARG_EXPORT_NAME ${ARG_EXPORT_NAME})
     add_executable("${PROJECT_NAME}::${ARG_EXPORT_NAME}" ALIAS ${name})
 
     # Tools each install as their own exported component.

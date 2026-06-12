@@ -6,6 +6,8 @@ get_property(_conversion_libs GLOBAL PROPERTY ${PROJECT_NAME}_CONVERSION_LIBS)
 add_ktir_tool(ktir-opt 
     ktir-opt.cpp
 
+  EXPORT_NAME opt
+
   SUPPORT_PLUGINS
 )
 target_link_libraries(ktir-opt PRIVATE
