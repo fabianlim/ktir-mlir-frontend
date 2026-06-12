@@ -1,5 +1,8 @@
 include(AddKTIRPython)
 
+# NOTE: These are for tablegen only!
+include_directories(${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
+
 # KTIR bindings contain their own copy of the MLIR bindings.
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=${MLIR_PYTHON_PACKAGE_PREFIX}.")
 
@@ -60,6 +63,7 @@ declare_mlir_python_extension(KTIRPythonExtensions.Main
   PRIVATE_LINK_LIBS
     LLVMSupport
 )
+target_link_libraries(KTIRPythonExtensions.Main INTERFACE KTIR::KtdpDialect)
 
 if(MLIR_PYTHON_STUBGEN_ENABLED)
   add_ktir_python_type_stubs(KTIRPythonExtensions.Main

@@ -4,6 +4,7 @@ set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 set(PYTHON_PACKAGE_DIR 
   "${PROJECT_BINARY_DIR}/${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
 )
+
 file(MAKE_DIRECTORY "${PYTHON_PACKAGE_DIR}")
 
 # Patch the MLIR function of the same name to fix install targets.
@@ -26,6 +27,7 @@ function(_mlir_python_install_sources name source_root_dir destination)
 endfunction()
 
 if(MLIR_PYTHON_STUBGEN_ENABLED)
+  # Convenience function to declare a stubgen target.
   function(add_ktir_python_type_stubs extension)
     cmake_parse_arguments(ARG "" "ADD_TO_PARENT" "DEPENDS_TARGETS;OUTPUTS;IMPORT_PATHS" ${ARGN})
 

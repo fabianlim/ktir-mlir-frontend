@@ -1,7 +1,7 @@
 # Get the names of all relevant exported KTIR targets.
-get_property(ktir_dialect_libs GLOBAL PROPERTY KTIR_DIALECT_LIBS)
-get_property(ktir_extension_libs GLOBAL PROPERTY KTIR_EXTENSION_LIBS)
-get_property(ktir_conversion_libs GLOBAL PROPERTY KTIR_CONVERSION_LIBS)
+get_property(_dialect_libs GLOBAL PROPERTY ${PROJECT_NAME}_DIALECT_LIBS)
+get_property(_extension_libs GLOBAL PROPERTY ${PROJECT_NAME}_EXTENSION_LIBS)
+get_property(_conversion_libs GLOBAL PROPERTY ${PROJECT_NAME}_CONVERSION_LIBS)
 
 add_ktir_tool(ktir-opt 
     ktir-opt.cpp
@@ -9,9 +9,12 @@ add_ktir_tool(ktir-opt
   SUPPORT_PLUGINS
 )
 target_link_libraries(ktir-opt PRIVATE
-  ${ktir_dialect_libs}
-  ${ktir_extension_libs}
-  ${ktir_conversion_libs}
+  # NOTE: This is _not_ part of libMLIR.so!
+  MLIRMlirOptMain
+
+  ${_dialect_libs}
+  ${_extension_libs}
+  ${_conversion_libs}
 )
 
 mlir_target_link_libraries(ktir-opt PRIVATE

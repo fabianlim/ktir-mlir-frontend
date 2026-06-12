@@ -14,9 +14,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 set(LLVM_LIT_ARGS "-sv" CACHE STRING "Default options for lit")
 
-# Install instructions and packaging, needs to come first for RPATH.
-add_subdirectory(cmake)
-
 if(PROJECT_IS_TOP_LEVEL)
   # Find MLIR.
   find_package(MLIR REQUIRED CONFIG)
@@ -43,12 +40,36 @@ if(PROJECT_IS_TOP_LEVEL)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
   set(LLVM_LIBRARY_OUTPUT_INTDIR ${PROJECT_BINARY_DIR}/lib)
   set(LLVM_RUNTIME_OUTPUT_INTDIR ${PROJECT_BINARY_DIR}/bin)
+
+  # Set up RPATH for installed distribution.
+  include(GNUInstallDirs)
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH YES)
+  set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 endif()
 
-# Declare the CMake build options and their defaults.
+#
+# Configure options
+#
+
 option(KTIR_ENABLE_PYTHON_BINDINGS "Build Python bindings" NO)
 option(KTIR_BUILD_TOOLS "Build tool executables" ${PROJECT_IS_TOP_LEVEL})
 
+#
+# Umbrella targets
+#
+
+# Build all CAPI libraries.
+add_custom_target(ktir-capi)
+# Build all documentation targets.
+add_custom_target(ktir-doc)
+# Build all generated include targets.
+add_custom_target(ktir-headers)
+
+#
+# Derived variables
+#
+
+# Handle linking against LLVM/MLIR shared library.
 if(TARGET MLIR AND NOT DEFINED MLIR_LINK_MLIR_DYLIB)
   # As a workaround for MLIRConfig.cmake not exporting this variable, we will
   # infer that it is set if the DSO target exists.
@@ -63,7 +84,7 @@ if(MLIR_LINK_MLIR_DYLIB)
   message(STATUS "Linking against: ${_mlir_dso}")
 endif()
 
-# Setup Python binding variables.
+# Handle building combined Python bindings.
 if(KTIR_ENABLE_PYTHON_BINDINGS)
   set(MLIR_ENABLE_BINDINGS_PYTHON ON)
   include(MLIRDetectPythonEnv)
@@ -83,11 +104,12 @@ if(KTIR_ENABLE_PYTHON_BINDINGS)
   endif()
 endif()
 
-# Apply target properties for this project globally.
-include_directories(SYSTEM ${PROJECT_BINARY_DIR}/include)
-include_directories(${PROJECT_SOURCE_DIR}/include)
-
 # Include KTIR CMake module.
+set(KTIR_INCLUDE_DIRS 
+  ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_BINARY_DIR}/include
+  CACHE STRING "" FORCE
+)
 include(AddKTIR)
 
 add_subdirectory(include)
@@ -97,3 +119,6 @@ if(KTIR_ENABLE_PYTHON_BINDINGS)
 endif()
 add_subdirectory(test)
 add_subdirectory(tools)
+
+# Install instructions, these must come last so that all properties are set.
+add_subdirectory(cmake)

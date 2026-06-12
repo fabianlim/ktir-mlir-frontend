@@ -1,4 +1,4 @@
-add_ktir_dialect_library(KTIRKtdpDialect
+add_ktir_library(KTIRKtdpDialect
     KtdpAttrs.cpp
     KtdpDialect.cpp
     KtdpOps.cpp
@@ -8,8 +8,8 @@ add_ktir_dialect_library(KTIRKtdpDialect
     ${PROJECT_SOURCE_DIR}/include/Ktdp
     ${PROJECT_BINARY_DIR}/include/Ktdp
 
-  EXPORT_NAME
-    KtdpDialect
+  GROUP DIALECT
+  EXPORT_NAME KtdpDialect
 
   DEPENDS
     KTIRKtdpAttrInterfacesIncGen
