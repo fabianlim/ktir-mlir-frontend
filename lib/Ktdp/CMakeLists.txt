@@ -18,5 +18,4 @@ add_mlir_dialect_library(MLIRKtdp
   MLIRIR
   MLIRInferTypeOpInterface
   MLIRAnalysis
-  MLIRPresburger
 )

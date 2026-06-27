@@ -22,6 +22,7 @@
 #include "Ktdp/KtdpOps.hpp"
 
 #include "Ktdp/KtdpTypes.hpp"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "mlir/Analysis/FlatLinearValueConstraints.h"
 #include "mlir/Analysis/Presburger/IntegerRelation.h"
@@ -32,7 +33,6 @@
 
 using namespace mlir;
 using namespace mlir::ktdp;
-using presburger::IntegerPolyhedron;
 
 //===----------------------------------------------------------------------===//
 // ConstructAccessTilesOp
@@ -1229,38 +1229,89 @@ LogicalResult RuntimeArgExtractOp::verify() {
 
 namespace {
 
-// Build the polyhedron of tile ids selected by a parameterized tile set for a
-// single concrete group value `g`, over the tile-id dimension. `tileSet` is a
-// set `(i)[g]` (e.g. producer_tiles_per_group or consumer_tiles_per_group); we
-// materialize it as constraints and pin its lone symbol `g` to `gVal`, leaving
-// an IntegerPolyhedron over `i`.
-IntegerPolyhedron tilesForGroup(IntegerSet tileSet, int64_t gVal) {
-  FlatLinearValueConstraints cst(tileSet);
-  // The symbol introduced by the integer set is the group index `g`. Fix it to
-  // the concrete value and eliminate it, leaving the tile-id dimension(s).
-  unsigned symOffset = cst.getVarKindOffset(presburger::VarKind::Symbol);
-  cst.setAndEliminate(symOffset, {gVal});
-  return IntegerPolyhedron(cst);
-}
+// Pure-enumeration helpers for inter-tile verifiers (Option B).
+//
+// We enumerate concrete integer points rather than using Presburger set
+// operations. This keeps the code simple and removes the MLIRPresburger
+// dependency. The trade-off is that both `groups` and the tile-id range must
+// be statically bounded; unbounded cases are deferred (TODO).
+//
+// Note: a pure-Presburger approach (Option A) was also designed: disjointness
+// and subset become relation emptiness queries over (i, g) without any loop;
+// the |C|==1 mode gate requires a two-tile-variable construction. See the
+// discussion at https://github.com/torch-spyre/ktir-mlir-frontend/pull/25
+// for the full design if unbounded-groups support is ever needed.
 
-// Concrete group values that satisfy `groupsSet`, when its range is statically
-// bounded. Returns std::nullopt if unbounded (caller should defer the check).
-std::optional<SmallVector<int64_t>> boundedGroupValues(IntegerSet groupsSet) {
-  FlatLinearValueConstraints groupsCst(groupsSet);
+// Enumerate the group values in `groupsSet` (a 1D set over `g` with no
+// symbols). Returns std::nullopt when the range is not statically bounded.
+std::optional<SmallVector<int64_t>> groupValues(IntegerSet groupsSet) {
+  FlatLinearValueConstraints cst(groupsSet);
+  // getConstantBound64 returns a scalar constant lb/ub or nullopt when the
+  // bound is symbolic or absent -- exactly the bounded-vs-unbounded gate we
+  // need, with no manual constraint inspection.
   std::optional<int64_t> lo =
-      groupsCst.getConstantBound64(presburger::BoundType::LB, /*pos=*/0);
+      cst.getConstantBound64(presburger::BoundType::LB, /*pos=*/0);
   std::optional<int64_t> hi =
-      groupsCst.getConstantBound64(presburger::BoundType::UB, /*pos=*/0);
+      cst.getConstantBound64(presburger::BoundType::UB, /*pos=*/0);
   if (!lo || !hi) return std::nullopt;
   SmallVector<int64_t> vals;
   for (int64_t g = *lo; g <= *hi; ++g) {
     FlatLinearValueConstraints gCst(groupsSet);
-    IntegerPolyhedron gPoly(gCst);
-    gPoly.setAndEliminate(gPoly.getVarKindOffset(presburger::VarKind::SetDim),
-                          {g});
-    if (!gPoly.isIntegerEmpty()) vals.push_back(g);
+    gCst.setAndEliminate(gCst.getVarKindOffset(presburger::VarKind::SetDim),
+                         {g});
+    if (!gCst.isIntegerEmpty()) vals.push_back(g);
   }
   return vals;
+}
+
+// Return the set of tile ids selected by `tileSet` (a set `(i)[g]`) for a
+// concrete group value `g`. Enumerates `i` from 0 up to the static upper
+// bound on the tile-id dimension. Returns std::nullopt when that bound is not
+// statically known.
+std::optional<llvm::DenseSet<int64_t>> tilesOf(IntegerSet tileSet,
+                                               int64_t gVal) {
+  FlatLinearValueConstraints cst(tileSet);
+  // Fix the group symbol to gVal and project it out.
+  cst.setAndEliminate(cst.getVarKindOffset(presburger::VarKind::Symbol),
+                      {gVal});
+  // Upper bound on the tile-id dimension after fixing g; nullopt means the
+  // tile range is symbolic (e.g. parameterized by a runtime value) -- defer.
+  std::optional<int64_t> hi =
+      cst.getConstantBound64(presburger::BoundType::UB, /*pos=*/0);
+  if (!hi) return std::nullopt;
+  llvm::DenseSet<int64_t> out;
+  for (int64_t i = 0; i <= *hi; ++i) {
+    FlatLinearValueConstraints pt(tileSet);
+    pt.setAndEliminate(pt.getVarKindOffset(presburger::VarKind::Symbol),
+                       {gVal});
+    pt.setAndEliminate(pt.getVarKindOffset(presburger::VarKind::SetDim), {i});
+    if (!pt.isIntegerEmpty()) out.insert(i);
+  }
+  return out;
+}
+
+// Return the set of producer tiles in `depSet` (a set `(p)[c, g]`) for a
+// concrete consumer `cVal` and group `gVal`. Symbols are ordered [c, g].
+std::optional<llvm::DenseSet<int64_t>> depTilesOf(IntegerSet depSet,
+                                                   int64_t cVal,
+                                                   int64_t gVal) {
+  FlatLinearValueConstraints cst(depSet);
+  unsigned symBase = cst.getVarKindOffset(presburger::VarKind::Symbol);
+  cst.setAndEliminate(symBase, {cVal});   // fix c (first symbol)
+  cst.setAndEliminate(symBase, {gVal});   // fix g (now first remaining symbol)
+  std::optional<int64_t> hi =
+      cst.getConstantBound64(presburger::BoundType::UB, /*pos=*/0);
+  if (!hi) return std::nullopt;
+  llvm::DenseSet<int64_t> out;
+  for (int64_t p = 0; p <= *hi; ++p) {
+    FlatLinearValueConstraints pt(depSet);
+    unsigned sb = pt.getVarKindOffset(presburger::VarKind::Symbol);
+    pt.setAndEliminate(sb, {cVal});
+    pt.setAndEliminate(sb, {gVal});
+    pt.setAndEliminate(pt.getVarKindOffset(presburger::VarKind::SetDim), {p});
+    if (!pt.isIntegerEmpty()) out.insert(p);
+  }
+  return out;
 }
 
 }  // namespace
@@ -1350,22 +1401,27 @@ LogicalResult InterTileProduceOp::verify() {
                        "(the group index g)");
 
   // Disjointness invariant (§2.1): producer tile sets for distinct groups must
-  // not overlap. Enumerated check -- only when the group range is statically
-  // bounded; otherwise defer (TODO: symbolic emptiness over g1 != g2).
-  if (auto groupVals = boundedGroupValues(groupsSet)) {
-    for (size_t a = 0; a < groupVals->size(); ++a)
-      for (size_t b = a + 1; b < groupVals->size(); ++b) {
-        IntegerPolyhedron pa = tilesForGroup(producerSet, (*groupVals)[a]);
-        IntegerPolyhedron pb = tilesForGroup(producerSet, (*groupVals)[b]);
-        if (!pa.intersect(pb).isIntegerEmpty())
-          return emitOpError("producer_tiles_per_group for groups ")
-                 << (*groupVals)[a] << " and " << (*groupVals)[b]
-                 << " are not disjoint";
-      }
+  // not overlap. Enumeration check -- requires statically bounded groups and
+  // tile-id range; deferred otherwise.
+  if (auto groupVals = groupValues(groupsSet)) {
+    SmallVector<llvm::DenseSet<int64_t>> tileSets;
+    for (int64_t g : *groupVals) {
+      auto ts = tilesOf(producerSet, g);
+      if (!ts) break;  // tile bound not static for this g -- skip
+      tileSets.push_back(std::move(*ts));
+    }
+    if (tileSets.size() == groupVals->size()) {
+      for (size_t a = 0; a < tileSets.size(); ++a)
+        for (size_t b = a + 1; b < tileSets.size(); ++b)
+          for (int64_t tile : tileSets[a])
+            if (tileSets[b].count(tile))
+              return emitOpError("producer_tiles_per_group for groups ")
+                     << (*groupVals)[a] << " and " << (*groupVals)[b]
+                     << " are not disjoint";
+    }
   }
-  // else: unbounded group range -- defer to a future symbolic check.
+  // else: unbounded -- defer to a future symbolic check.
 
-  // TODO(inter-tile): symbolic disjointness check for unbounded group ranges.
   return success();
 }
 
@@ -1571,21 +1627,24 @@ LogicalResult InterTileReduceOp::verify() {
       return emitOpError("`consumer_tiles_per_group` must have exactly one "
                          "symbol (the group index g)");
 
-    if (auto groupVals = boundedGroupValues(groupsSet)) {
+    if (auto groupVals = groupValues(groupsSet)) {
       for (int64_t g : *groupVals) {
-        IntegerPolyhedron c = tilesForGroup(consumerSet, g);
-        IntegerPolyhedron p = tilesForGroup(producerSet, g);
+        auto cOpt = tilesOf(consumerSet, g);
+        auto pOpt = tilesOf(producerSet, g);
+        if (!cOpt || !pOpt) continue;  // tile bound not static -- defer
+        const auto& c = *cOpt;
+        const auto& p = *pOpt;
         // Mandated: every consumer must have produced (C subset of P). A
         // consumer outside the producer set is open question Q1 -- unsupported.
-        if (!c.isSubsetOf(p))
-          return emitOpError("consumer_tiles_per_group for group ")
-                 << g << " is not a subset of producer_tiles_per_group "
-                 << "(a consumer tile that did not produce is unsupported; "
-                 << "see open question Q1)";
+        for (int64_t tile : c)
+          if (!p.count(tile))
+            return emitOpError("consumer_tiles_per_group for group ")
+                   << g << " is not a subset of producer_tiles_per_group "
+                   << "(a consumer tile that did not produce is unsupported; "
+                   << "see open question Q1)";
         // Accept all-reduce (C == P) or reduce-to-one (|C| == 1).
-        if (c.isEqual(p)) continue;
-        std::optional<llvm::DynamicAPInt> vol = c.computeVolume();
-        if (vol && *vol == llvm::DynamicAPInt(1)) continue;
+        if (c == p) continue;
+        if (c.size() == 1) continue;
         return emitOpError("consumer_tiles_per_group for group ")
                << g << " is a strict subset of producer_tiles_per_group with "
                << "more than one tile (reduce-to-subset is unsupported; only "
@@ -1595,8 +1654,56 @@ LogicalResult InterTileReduceOp::verify() {
     // else: unbounded group range -- defer to a future symbolic check.
   }
 
-  // TODO(inter-tile): `groups` matches the producing op; subset/coverage of
-  // producer_dependency_per_consumer; symbolic (unbounded-groups) variants.
+  // Check 4: `groups` on reduce must match `groups` on the paired produce.
+  if (produceOp) {
+    if (getGroups().getValue() != produceOp.getGroups().getValue())
+      return emitOpError("`groups` does not match the paired "
+                         "`inter_tile_produce`");
+  }
+
+  // Check 5: producer_dependency_per_consumer (when present).
+  //   (a) Subset: every p in D(c, g) must be in P(g).
+  //   (b) Coverage: every p in P(g) must appear in D(c, g) for some c in C(g).
+  if (produceOp) {
+    if (auto depAttr = getProducerDependencyPerConsumerAttr()) {
+      IntegerSet depSet = depAttr.getValue();
+      if (depSet.getNumSymbols() != 2)
+        return emitOpError("`producer_dependency_per_consumer` must have "
+                           "exactly two symbols (c, g)");
+      IntegerSet groupsSet = getGroups().getValue();
+      IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
+      IntegerSet producerSet = produceOp.getProducerTilesPerGroup().getValue();
+      if (auto groupVals = groupValues(groupsSet)) {
+        for (int64_t g : *groupVals) {
+          auto cOpt = tilesOf(consumerSet, g);
+          auto pOpt = tilesOf(producerSet, g);
+          if (!cOpt || !pOpt) continue;  // defer if tile bound not static
+          llvm::DenseSet<int64_t> covered;
+          for (int64_t c : *cOpt) {
+            auto dOpt = depTilesOf(depSet, c, g);
+            if (!dOpt) continue;
+            for (int64_t p : *dOpt) {
+              // (a) subset check
+              if (!pOpt->count(p))
+                return emitOpError(
+                           "producer_dependency_per_consumer for consumer ")
+                       << c << " group " << g << " references producer tile "
+                       << p << " which is not in producer_tiles_per_group";
+              covered.insert(p);
+            }
+          }
+          // (b) coverage check
+          for (int64_t p : *pOpt)
+            if (!covered.count(p))
+              return emitOpError(
+                         "producer_dependency_per_consumer for group ")
+                     << g << " does not cover producer tile " << p
+                     << " (no consumer has it as a dependency)";
+        }
+      }
+    }
+  }
+
   return success();
 }
 
