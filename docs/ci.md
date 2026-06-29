@@ -1,9 +1,9 @@
 # CI Overview
 
-> The pinned LLVM artifact CI flow is adopted from
+> The pinned-LLVM CI flow is adopted from
 > [triton-lang/triton](https://github.com/triton-lang/triton).
-> The scheduled artifact refresh and `mlir_wheel` fallback are extensions of
-> that pattern.
+> Publishing the build as a GitHub Release asset and the `mlir_wheel` fallback
+> are extensions of that pattern.
 
 This document describes the three CI flows for `ktir-mlir-frontend`, how they
 relate to each other, and how to use them for local development.
@@ -17,7 +17,7 @@ two sources:
 
 | Source | When used | Stability |
 |--------|-----------|-----------|
-| **Custom LLVM artifact** | `cmake/llvm-hash.txt` is present | Stable — pinned to an official LLVM release tag, stored as a GitHub Actions artifact (90-day retention, refreshed every 2 months) |
+| **Custom LLVM build** | `cmake/llvm-hash.txt` is present | Stable — pinned to an official LLVM release tag, published as a **GitHub Release asset** (`llvm-<short-hash>`): public, no token, never expires. (A legacy Actions-artifact download remains in `setup_mlir.py` as a token-gated fallback for hashes built before releases were adopted.) |
 | **mlir_wheel** | No hash file, or explicit `--wheel` override | Bleeding-edge — tracks LLVM `main`, individual versions expire after 30 days |
 
 The file `cmake/llvm-hash.txt` is the single control point.  Its presence
@@ -35,7 +35,8 @@ switches all three flows to the custom artifact path automatically.
 2. Runs `uv sync --extra test` to install Python test dependencies (venv must
    exist before MLIR setup in case the wheel fallback needs to `pip install`)
 3. Calls `scripts/setup_mlir.py` to resolve and cache the MLIR installation:
-   - Default: downloads the pinned LLVM artifact from GitHub Actions
+   - Default: downloads the pinned LLVM build from the `llvm-<short-hash>`
+     GitHub Release (no token), falling back to the legacy Actions artifact
    - `--wheel`: installs `mlir_wheel` from the eudsl index (explicit opt-in only)
 4. Configures and builds KTIR with CMake
 5. Runs LIT tests (`check-ktir`)
@@ -43,7 +44,7 @@ switches all three flows to the custom artifact path automatically.
 7. Runs Python tests (`pytest python/test/`)
 
 **Normal developer workflow:** open a PR → Flow 1 runs automatically.  No
-manual steps needed as long as the LLVM artifact for the pinned hash exists.
+manual steps needed as long as the LLVM release for the pinned hash exists.
 
 ---
 
@@ -51,37 +52,29 @@ manual steps needed as long as the LLVM artifact for the pinned hash exists.
 
 **Triggers:**
 - Push to `main` that changes `cmake/llvm-hash.txt` (hash bump)
-- Scheduled: 1st of every other month at 02:00 UTC (`0 2 1 */2 *`)
 - Manual: `workflow_dispatch` with an optional hash override
+- Pull request that touches `llvm-build.yml` (builds + packages to validate the
+  workflow, but does **not** publish a release)
 
-**What it does** depends on whether a valid artifact already exists:
+**What it does** depends on whether the release asset already exists:
 
-### Hash bump (artifact does not exist)
+### Hash bump (release asset does not exist)
 
 1. Reads the new hash from `cmake/llvm-hash.txt`
-2. Checks GitHub Actions artifacts — none found for this hash
+2. Checks the `llvm-<short-hash>` release — no asset for this platform yet
 3. Checks out `llvm-project` at the pinned commit
 4. Builds LLVM/MLIR with `MLIR_ENABLE_BINDINGS_PYTHON=ON` (required for
    downstream Python wheel builds)
 5. Runs `check-mlir` to validate the build
-6. Packages and uploads the artifact (`retention-days: 90`)
-7. Triggers Flow 1 (`ci.yml`) against the new artifact
+6. Packages the tarball and publishes it as an asset on the `llvm-<short-hash>`
+   prerelease (created once, shared by all 3 platform jobs; `--clobber` keeps
+   re-runs idempotent)
+7. Triggers Flow 1 (`ci.yml`) against the new release
+8. Prunes old `llvm-*` releases, keeping the newest `LLVM_RELEASE_KEEP` (10)
 
-### Scheduled refresh (artifact exists)
-
-The scheduled run exists solely to reset the 90-day retention clock before
-the artifact expires.  A full rebuild is unnecessary — the content is
-identical.
-
-1. Reads the hash from `cmake/llvm-hash.txt`
-2. Checks GitHub Actions artifacts — existing artifact found
-3. Downloads the artifact zip via the GitHub API
-4. Re-uploads it — a new artifact entry is created with a fresh 90-day clock
-5. Deletes the old artifact to prevent stale duplicates accumulating in GitHub Actions
-6. Flow 1 is **not** triggered (artifact content unchanged)
-
-The 2-month schedule gives a ~30-day buffer before the previous upload
-expires, so there is always a valid artifact available for Flow 1.
+Release assets never expire and download without a token, so there is no
+scheduled-refresh job — the old 90-day retention clock is gone. Storage is
+bounded only by the prune step (step 8).
 
 ### When to trigger manually
 
@@ -101,7 +94,7 @@ gh workflow run llvm-build.yml -f llvm-hash=<full-40-char-sha>
 
 **What it does:** runs the same build + test pipeline as Flow 1 but sources
 MLIR from the latest `mlir_wheel` on the eudsl index instead of the pinned
-artifact.
+release.
 
 Use this to:
 - Test compatibility with the latest LLVM `main` before bumping the hash
@@ -123,32 +116,33 @@ gh workflow run ci.yml -f mlir-source=mlir_wheel
 
 There are two ways to obtain an MLIR installation for local builds:
 
-**Option A — Download the CI artifact (recommended)**
+**Option A — Download the prebuilt LLVM (recommended)**
 
-`scripts/setup_mlir.py` downloads the pre-built LLVM artifact produced by
-Flow 2 (`llvm-build.yml`).  It reads `cmake/llvm-hash.txt`, checks a local
-cache, and pulls from GitHub Actions if needed.  If the artifact cannot be
-resolved (missing token, artifact not found, download failure), the script
-exits with a clear error explaining the cause.  Pass `--wheel` to explicitly
-opt in to `mlir_wheel` instead.
+`scripts/setup_mlir.py` downloads the pre-built LLVM produced by Flow 2
+(`llvm-build.yml`).  It reads `cmake/llvm-hash.txt`, checks a local cache, then
+pulls the `llvm-<short-hash>` **GitHub Release asset** — public, **no token
+needed**.  Only if the release is absent (a hash built before releases were
+adopted) does it fall back to the legacy Actions artifact, which *does* require
+a token.  Pass `--wheel` to explicitly opt in to `mlir_wheel` instead.
 
 ```bash
-# Cache hit (hash unchanged since last run) — no token needed:
+# Release exists (the normal case) — no token needed, cached or not:
 MLIR_DIR=$(uv run python scripts/setup_mlir.py)
 
-# Cache miss — GIT_PAT or GITHUB_TOKEN must be set to download the artifact.
-# The script resolves the repo from git remote automatically; for forks where
-# the artifact lives in the upstream repo, pass --repo explicitly:
+# The script resolves the repo from git remote automatically; on a fork whose
+# release lives in the upstream repo, pass --repo explicitly:
+MLIR_DIR=$(uv run python scripts/setup_mlir.py --repo torch-spyre/ktir-mlir-frontend)
+
+# Legacy fallback only: if no release exists, GIT_PAT/GITHUB_TOKEN is needed to
+# download the Actions artifact instead.
 GIT_PAT=<your-token> MLIR_DIR=$(uv run python scripts/setup_mlir.py)
-GIT_PAT=<your-token> MLIR_DIR=$(uv run python scripts/setup_mlir.py --repo <fork>/ktir-mlir-frontend)
 
 # Force mlir_wheel (no token required, no cache):
 MLIR_DIR=$(uv run python scripts/setup_mlir.py --wheel)
 ```
 
-Artifacts are cached at `~/.cache/ktir-mlir/<artifact-name>/`.  Once cached,
-subsequent calls with the same hash return immediately with no network access
-and no token required.
+The build is cached at `~/.cache/ktir-mlir/<artifact-name>/`.  Once cached,
+subsequent calls with the same hash return immediately with no network access.
 
 **Option B — Build MLIR manually**
 
