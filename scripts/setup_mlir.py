@@ -195,24 +195,23 @@ def _extract_tar_to_cache(tar_path: pathlib.Path, artifact_name: str) -> str:
     return str(mlir_dir)
 
 
-def build_release_url(repo: str, artifact_name: str) -> str:
+def build_release_url(repo: str, short_hash: str, artifact_name: str) -> str:
     """Public release-asset download URL (no auth needed on a public repo).
 
     The release tag is llvm-<short-hash>; the asset is the per-platform tarball
-    llvm-<short>-<os>-<arch>.tar.gz. artifact_name already carries the short
-    hash + os + arch, and its leading "llvm-<short>" is exactly the tag.
+    llvm-<short>-<os>-<arch>.tar.gz. The tag is built from the known short_hash
+    rather than re-parsed out of artifact_name.
     """
-    short_hash = artifact_name.split("-")[1]
     return (
         f"https://github.com/{repo}/releases/download/"
         f"llvm-{short_hash}/{artifact_name}.tar.gz"
     )
 
 
-def download_release_and_cache(repo: str, artifact_name: str) -> str:
+def download_release_and_cache(repo: str, short_hash: str, artifact_name: str) -> str:
     """Download the release-asset tarball (no token), unpack to cache, return MLIR_DIR."""
     _CACHE_BASE.mkdir(parents=True, exist_ok=True)
-    url = build_release_url(repo, artifact_name)
+    url = build_release_url(repo, short_hash, artifact_name)
     _err(f"Downloading {artifact_name} from GitHub Releases...")
     _err(f"URL: {url}")
 
@@ -224,9 +223,9 @@ def download_release_and_cache(repo: str, artifact_name: str) -> str:
         return _extract_tar_to_cache(tar_path, artifact_name)
 
 
-def release_asset_available(repo: str, artifact_name: str) -> bool:
+def release_asset_available(repo: str, short_hash: str, artifact_name: str) -> bool:
     """True if the public release asset exists (HEAD request, no token)."""
-    url = build_release_url(repo, artifact_name)
+    url = build_release_url(repo, short_hash, artifact_name)
     req = urllib.request.Request(url, method="HEAD")
     opener = urllib.request.build_opener(_PreservingHTTPRedirectHandler)
     try:
@@ -394,12 +393,12 @@ def main():
     # expire.  Falls through to the Actions-artifact path if the release is
     # absent (e.g. a hash built before releases were adopted).
     _err(f"Checking GitHub Releases for {artifact_name} in {repo}...")
-    if release_asset_available(repo, artifact_name):
+    if release_asset_available(repo, short_hash, artifact_name):
         if args.dry_run:
             _err(f"✓ Dry run: release asset '{artifact_name}' available in {repo}")
             return
         try:
-            mlir_dir = download_release_and_cache(repo, artifact_name)
+            mlir_dir = download_release_and_cache(repo, short_hash, artifact_name)
             _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv sync -v  # builds and installs ktir against MLIR")
             print(mlir_dir)
             return
