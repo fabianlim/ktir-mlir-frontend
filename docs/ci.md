@@ -50,55 +50,99 @@ manual steps needed as long as the LLVM release for the pinned hash exists.
 
 ## Flow 2 — LLVM Build (`llvm-build.yml`)
 
+`llvm-build.yml` builds the pinned LLVM/MLIR once per platform and publishes it
+through **two parallel mechanisms** that currently run side by side:
+
+- **Release Flow** — the LLVM build is published as a **GitHub Release asset**
+  on the `llvm-<short-hash>` prerelease (public, no token, never expires). This
+  is the promoted, default path.
+- **Artifacts Flow [Marked for Deprecation]** — the same tarball is also
+  uploaded as a GitHub **Actions artifact** (90-day expiry, token-gated). This
+  is the legacy path, kept alive during the migration (issue #24) and removed
+  once the Release Flow is confirmed and all consumers have cut over.
+
+Both mechanisms exist on purpose right now; `setup_mlir.py` resolves the release
+asset first and falls back to the artifact.
+
 **Triggers:**
 - Push to `main` that changes `cmake/llvm-hash.txt` (hash bump)
 - Manual: `workflow_dispatch` with an optional hash override
 - Pull request that touches `llvm-build.yml` (builds + packages to validate the
   workflow, but does **not** publish a release)
-- Scheduled cron (1st of every other month) — **DEPRECATED (issue #24):**
-  refreshes the legacy Actions artifact within its 90-day retention window
-  while it remains a fallback. Removed once the release path is confirmed.
+- Scheduled cron (1st of every other month) — drives the Artifacts Flow refresh
+  only (see *Scheduled Refresh* below); **[Marked for Deprecation]**
 
-**What it does** depends on whether the release asset already exists:
+A single build job produces the tarball; a `Publish release asset` step (Release
+Flow) and an `Upload artifact (legacy)` step (Artifacts Flow) each fire only
+when their own target is missing. The build itself runs whenever *either* target
+is absent. The Artifacts Flow is removed once the Release Flow is confirmed and
+all consumers have cut over (issue #24).
 
-### Hash bump (release asset does not exist)
+### Hash Bump
 
-1. Reads the new hash from `cmake/llvm-hash.txt`
-2. Checks the `llvm-<short-hash>` release — no asset for this platform yet
-3. Checks out `llvm-project` at the pinned commit
-4. Builds LLVM/MLIR with `MLIR_ENABLE_BINDINGS_PYTHON=ON` (required for
-   downstream Python wheel builds)
-5. Runs `check-mlir` to validate the build
-6. Packages the tarball and publishes it as an asset on the `llvm-<short-hash>`
-   prerelease (created once, shared by all 3 platform jobs; `--clobber` keeps
-   re-runs idempotent)
-7. **DEPRECATED (issue #24):** also uploads the same tarball as an Actions
-   artifact, so both sources exist during migration
-8. Triggers Flow 1 (`ci.yml`) against the new release
+On a hash bump (or any dispatch where the target is missing), a single build job
+checks out `llvm-project` at the pinned commit, builds LLVM/MLIR with
+`MLIR_ENABLE_BINDINGS_PYTHON=ON` (required for downstream Python wheel builds),
+runs `check-mlir`, packages the tarball, then feeds both flows and triggers
+Flow 1 (`ci.yml`) against the new build.
 
-Release assets never expire and download without a token. There is **no**
-automated pruning — few LLVM versions are expected; delete a stale release
-manually when needed:
+#### Release Flow
+
+1. `create-release` job ensures the `llvm-<short-hash>` prerelease exists (made
+   once, shared by all 3 platform jobs; idempotent)
+2. `gh release upload --clobber`s the tarball to the release
+
+#### Artifacts Flow [Marked for Deprecation]
+
+`actions/upload-artifact` uploads the same tarball as a 90-day Actions artifact.
+
+### Manual Invocation
+
+Use this to (re)produce a build without bumping `cmake/llvm-hash.txt` (e.g.
+after an accidental delete, or a one-off hash). A single dispatch builds once
+and feeds both flows, each upload step skipping if its own target already
+exists — so check first. The check differs per flow:
+
+#### Release Flow
+
+```bash
+gh release view llvm-<short-hash>            # public, no token
+```
+
+#### Artifacts Flow [Marked for Deprecation]
+
+```bash
+# Actions-artifacts query — needs a token, unlike the release check above:
+gh api "repos/<owner>/<repo>/actions/artifacts?name=llvm-<short-hash>-<os>-<arch>"
+```
+
+Then dispatch — uploads the release asset *and* the legacy artifact:
+
+```bash
+# Current pinned hash:
+gh workflow run llvm-build.yml
+# Specific hash (overrides cmake/llvm-hash.txt):
+gh workflow run llvm-build.yml -f llvm-hash=<full-40-char-sha>
+```
+
+### Scheduled Refresh
+
+#### Release Flow
+
+None — release assets never expire, so there is nothing to refresh. There is
+also **no** automated pruning (few LLVM versions are expected); delete a stale
+release manually when needed:
 
 ```bash
 gh release delete <tag> --cleanup-tag --yes   # e.g. tag = llvm-<short-hash>
 ```
 
-**Migration note (issue #24):** the legacy Actions-artifact path is kept live
-during Stage 1. A scheduled cron (`refresh` job) resets its 90-day retention
-clock, and `setup_mlir.py` still falls back to it when no release asset exists.
-Both paths are removed in Stage 2 once the release path is confirmed and
-consumers have cut over.
+#### Artifacts Flow [Marked for Deprecation]
 
-### When to trigger manually
-
-```bash
-# Rebuild for the current pinned hash (e.g. after accidental artifact deletion):
-gh workflow run llvm-build.yml
-
-# Build a specific hash (overrides cmake/llvm-hash.txt):
-gh workflow run llvm-build.yml -f llvm-hash=<full-40-char-sha>
-```
+A `refresh` job runs on the bi-monthly `schedule` cron: it downloads the
+existing artifact zip and re-uploads it to reset the 90-day retention clock (no
+rebuild — the content is unchanged). `trigger-ci` is **not** called after a
+refresh. Removed in Stage 2 along with the rest of the Artifacts Flow.
 
 ---
 
@@ -108,7 +152,7 @@ gh workflow run llvm-build.yml -f llvm-hash=<full-40-char-sha>
 
 **What it does:** runs the same build + test pipeline as Flow 1 but sources
 MLIR from the latest `mlir_wheel` on the eudsl index instead of the pinned
-release.
+artifact.
 
 Use this to:
 - Test compatibility with the latest LLVM `main` before bumping the hash
@@ -189,7 +233,8 @@ To adopt a new LLVM release:
 
 1. Update `cmake/llvm-hash.txt` with the full 40-character commit SHA
 2. Push to `main` (or merge a PR that changes the file)
-3. Flow 2 fires automatically — builds LLVM, uploads artifact, triggers Flow 1
+3. Flow 2 fires automatically — builds LLVM, publishes the release asset (and,
+   during migration, the legacy artifact), triggers Flow 1
 4. Monitor the `llvm-build` and `cmake-py-test` workflow runs
 
 ```bash
