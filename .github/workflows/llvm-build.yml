@@ -104,15 +104,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Two independent existence checks; each upload is gated on its own.
-      # Build only if at least one upload target is missing — there is no point
-      # building if we would publish nothing.  Each upload then fires only if
-      # its own target is absent (no needless re-publish/re-upload).
-      #   - release asset (primary)
-      #   - legacy Actions artifact (DEPRECATED, issue #24)
-      # gh needs a repo context, hence the checkout above.
-      - name: Check existing release asset / artifact
-        id: check
+      # Two independent existence checks, kept in separate steps so each path's
+      # logic stays self-contained.  The build/package steps run if EITHER target
+      # is missing (no point building when both already exist); each upload then
+      # fires only when its own target is absent.  gh needs a repo context, hence
+      # the checkout above.
+      - name: Check existing release asset
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -120,41 +118,36 @@ jobs:
           TAG="${{ needs.get-hash.outputs.release-tag }}"
           ARTIFACT_NAME="llvm-${SHORT}-${{ matrix.config.os }}-${{ matrix.config.arch }}"
           echo "artifact-name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
-
           if gh release view "$TAG" --json assets \
                -q '.assets[].name' 2>/dev/null | grep -qx "${ARTIFACT_NAME}.tar.gz"; then
-            RELEASE_EXISTS=true
+            echo "release-exists=true" >> $GITHUB_OUTPUT
             echo "::notice::Release asset ${ARTIFACT_NAME}.tar.gz already exists"
           else
-            RELEASE_EXISTS=false
+            echo "release-exists=false" >> $GITHUB_OUTPUT
           fi
-          echo "release-exists=${RELEASE_EXISTS}" >> $GITHUB_OUTPUT
 
-          # DEPRECATED (issue #24): legacy Actions-artifact existence check.
+      # DEPRECATED (issue #24): legacy Actions-artifact existence check.
+      - name: Check existing artifact (legacy)
+        id: artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARTIFACT_NAME="${{ steps.release.outputs.artifact-name }}"
           if [ -n "$(gh api \
                "repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=1" \
                -q '.artifacts[0].id // empty' 2>/dev/null)" ]; then
-            ARTIFACT_EXISTS=true
+            echo "artifact-exists=true" >> $GITHUB_OUTPUT
             echo "::notice::Legacy artifact ${ARTIFACT_NAME} already exists"
           else
-            ARTIFACT_EXISTS=false
-          fi
-          echo "artifact-exists=${ARTIFACT_EXISTS}" >> $GITHUB_OUTPUT
-
-          # Build only if at least one target is missing (we would publish it).
-          if [ "$RELEASE_EXISTS" = "true" ] && [ "$ARTIFACT_EXISTS" = "true" ]; then
-            echo "build=false" >> $GITHUB_OUTPUT
-            echo "::notice::Both release asset and artifact exist; skipping build"
-          else
-            echo "build=true" >> $GITHUB_OUTPUT
+            echo "artifact-exists=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Set artifact name
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
-        run: echo "LLVM_INSTALL_DIR=${{ steps.check.outputs.artifact-name }}" >> $GITHUB_ENV
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        run: echo "LLVM_INSTALL_DIR=${{ steps.release.outputs.artifact-name }}" >> $GITHUB_ENV
 
       - name: Checkout LLVM
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         uses: actions/checkout@v4
         with:
           repository: llvm/llvm-project
@@ -166,7 +159,7 @@ jobs:
       # Stable builds skip check-mlir and assertions; any regressions in ktir
       # itself will surface in cmake-py-test.
       - name: Detect stable build
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         run: |
           LLVM_HASH="${{ needs.get-hash.outputs.llvm-hash }}"
           if git ls-remote https://github.com/llvm/llvm-project 'refs/tags/llvmorg-*^{}' \
@@ -177,11 +170,11 @@ jobs:
           fi
 
       - name: Install uv
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         uses: astral-sh/setup-uv@v5
 
       - name: Install prerequisites
-        if: steps.check.outputs.build == 'true'
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         run: |
           # numpy<2 is only needed for check-mlir's Python tests; stable builds skip it
           if [ "$IS_STABLE_BUILD" = "true" ]; then
@@ -192,7 +185,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
       - name: Enable sccache
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         uses: actions/cache@v4
         with:
           path: ${{ env.SCCACHE_DIR }}
@@ -204,7 +197,7 @@ jobs:
       # cmake targets into the install tree. These are required by downstream
       # consumers (cmake-py-test) to build the ktir Python wheel via scikit-build-core.
       - name: Configure LLVM
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         run: |
           CMAKE_ARGS=(
             -GNinja -B llvm-project/build
@@ -241,7 +234,7 @@ jobs:
           cmake "${CMAKE_ARGS[@]}" llvm-project/llvm
 
       - name: Build and install LLVM
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         run: |
           if [ "$IS_STABLE_BUILD" = "true" ]; then
             ninja -C llvm-project/build install
@@ -250,7 +243,7 @@ jobs:
           fi
 
       - name: Package
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         run: tar czf "${{ env.LLVM_INSTALL_DIR }}.tar.gz" "${{ env.LLVM_INSTALL_DIR }}"
 
       # Upload the tarball to the llvm-<short> prerelease that the create-release
@@ -258,7 +251,7 @@ jobs:
       # create race.  PRs skip this (create-release didn't run; build + package
       # validates the workflow only).  --clobber keeps re-runs idempotent.
       - name: Publish release asset
-        if: ${{ steps.check.outputs.release-exists != 'true' && github.event_name != 'pull_request' && success() }}
+        if: ${{ steps.release.outputs.release-exists != 'true' && github.event_name != 'pull_request' && success() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -269,7 +262,7 @@ jobs:
       # migration so there is always a working MLIR source.  Delete once the
       # release path is confirmed and consumers have cut over to it.
       - name: Upload artifact (legacy)
-        if: ${{ steps.check.outputs.artifact-exists != 'true' && success() }}
+        if: ${{ steps.artifact.outputs.artifact-exists != 'true' && success() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.LLVM_INSTALL_DIR }}
@@ -277,7 +270,7 @@ jobs:
           retention-days: 90
 
       - name: Dump sccache statistics
-        if: ${{ steps.check.outputs.build == 'true' && success() }}
+        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
         run: sccache --show-stats
 
   # Trigger CI against the freshly built LLVM artifact.  Skipped on PRs: the
@@ -351,8 +344,8 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.check.outputs.artifact-name }}
-          path: ${{ steps.check.outputs.artifact-name }}.tar.gz
+          name: ${{ steps.release.outputs.artifact-name }}
+          path: ${{ steps.release.outputs.artifact-name }}.tar.gz
           retention-days: 90
 
       - name: Delete old artifact
