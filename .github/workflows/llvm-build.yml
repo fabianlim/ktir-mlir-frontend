@@ -142,12 +142,25 @@ jobs:
             echo "artifact-exists=false" >> $GITHUB_OUTPUT
           fi
 
+      # Combined flag: both targets present → nothing to build.  The build steps
+      # gate on this; each upload still gates on its own flag above.
+      - name: Determine whether a build is needed
+        id: check
+        run: |
+          if [ "${{ steps.release.outputs.release-exists }}" = "true" ] \
+             && [ "${{ steps.artifact.outputs.artifact-exists }}" = "true" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "::notice::Both release asset and artifact exist; skipping build"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set artifact name
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: echo "LLVM_INSTALL_DIR=${{ steps.release.outputs.artifact-name }}" >> $GITHUB_ENV
 
       - name: Checkout LLVM
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         uses: actions/checkout@v4
         with:
           repository: llvm/llvm-project
@@ -159,7 +172,7 @@ jobs:
       # Stable builds skip check-mlir and assertions; any regressions in ktir
       # itself will surface in cmake-py-test.
       - name: Detect stable build
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: |
           LLVM_HASH="${{ needs.get-hash.outputs.llvm-hash }}"
           if git ls-remote https://github.com/llvm/llvm-project 'refs/tags/llvmorg-*^{}' \
@@ -170,11 +183,11 @@ jobs:
           fi
 
       - name: Install uv
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         uses: astral-sh/setup-uv@v5
 
       - name: Install prerequisites
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: |
           # numpy<2 is only needed for check-mlir's Python tests; stable builds skip it
           if [ "$IS_STABLE_BUILD" = "true" ]; then
@@ -185,7 +198,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
       - name: Enable sccache
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         uses: actions/cache@v4
         with:
           path: ${{ env.SCCACHE_DIR }}
@@ -197,7 +210,7 @@ jobs:
       # cmake targets into the install tree. These are required by downstream
       # consumers (cmake-py-test) to build the ktir Python wheel via scikit-build-core.
       - name: Configure LLVM
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: |
           CMAKE_ARGS=(
             -GNinja -B llvm-project/build
@@ -234,7 +247,7 @@ jobs:
           cmake "${CMAKE_ARGS[@]}" llvm-project/llvm
 
       - name: Build and install LLVM
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: |
           if [ "$IS_STABLE_BUILD" = "true" ]; then
             ninja -C llvm-project/build install
@@ -243,7 +256,7 @@ jobs:
           fi
 
       - name: Package
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: tar czf "${{ env.LLVM_INSTALL_DIR }}.tar.gz" "${{ env.LLVM_INSTALL_DIR }}"
 
       # Upload the tarball to the llvm-<short> prerelease that the create-release
@@ -270,7 +283,7 @@ jobs:
           retention-days: 90
 
       - name: Dump sccache statistics
-        if: ${{ (steps.release.outputs.release-exists != 'true' || steps.artifact.outputs.artifact-exists != 'true') && success() }}
+        if: ${{ steps.check.outputs.exists != 'true' && success() }}
         run: sccache --show-stats
 
   # Trigger CI against the freshly built LLVM artifact.  Skipped on PRs: the
