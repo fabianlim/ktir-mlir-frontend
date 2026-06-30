@@ -93,6 +93,9 @@ AttributePrinterParser = 1` means most types/attrs get auto-generated syntax.
 Three flows (full detail in `docs/ci.md`). To adopt a new LLVM release, write
 the full 40-char SHA into `cmake/llvm-hash.txt` and push to `main`:
 `llvm-build.yml` then builds LLVM, publishes it as the `llvm-<short>` release
-asset, triggers the standard CI (`ci.yml`), and prunes old `llvm-*` releases
-(keeps newest `LLVM_RELEASE_KEEP`=10). Release assets never expire, so there is
-no scheduled refresh job.
+asset, and triggers the standard CI (`ci.yml`). Release assets never expire and
+are not auto-pruned — delete stale ones manually
+(`gh release delete <tag> --cleanup-tag --yes`). Migration in progress (issue
+#24): the legacy Actions-artifact path (a scheduled `refresh` cron + artifact
+upload) is kept live alongside the release asset as a fallback and removed in a
+later stage.

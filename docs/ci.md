@@ -17,7 +17,7 @@ two sources:
 
 | Source | When used | Stability |
 |--------|-----------|-----------|
-| **Custom LLVM build** | `cmake/llvm-hash.txt` is present | Stable — pinned to an official LLVM release tag, published as a **GitHub Release asset** (`llvm-<short-hash>`): public, no token, never expires. (A legacy Actions-artifact download remains in `setup_mlir.py` as a token-gated fallback for hashes built before releases were adopted.) |
+| **Custom LLVM build** | `cmake/llvm-hash.txt` is present | Stable — pinned to an official LLVM release tag, published as a **GitHub Release asset** (`llvm-<short-hash>`): public, no token, never expires. **Migration in progress (issue #24):** the legacy Actions-artifact path is still produced and refreshed alongside the release asset and remains a token-gated fallback in `setup_mlir.py`; it will be removed once the release path is confirmed. |
 | **mlir_wheel** | No hash file, or explicit `--wheel` override | Bleeding-edge — tracks LLVM `main`, individual versions expire after 30 days |
 
 The file `cmake/llvm-hash.txt` is the single control point.  Its presence
@@ -55,6 +55,9 @@ manual steps needed as long as the LLVM release for the pinned hash exists.
 - Manual: `workflow_dispatch` with an optional hash override
 - Pull request that touches `llvm-build.yml` (builds + packages to validate the
   workflow, but does **not** publish a release)
+- Scheduled cron (1st of every other month) — **DEPRECATED (issue #24):**
+  refreshes the legacy Actions artifact within its 90-day retention window
+  while it remains a fallback. Removed once the release path is confirmed.
 
 **What it does** depends on whether the release asset already exists:
 
@@ -69,12 +72,23 @@ manual steps needed as long as the LLVM release for the pinned hash exists.
 6. Packages the tarball and publishes it as an asset on the `llvm-<short-hash>`
    prerelease (created once, shared by all 3 platform jobs; `--clobber` keeps
    re-runs idempotent)
-7. Triggers Flow 1 (`ci.yml`) against the new release
-8. Prunes old `llvm-*` releases, keeping the newest `LLVM_RELEASE_KEEP` (10)
+7. **DEPRECATED (issue #24):** also uploads the same tarball as an Actions
+   artifact, so both sources exist during migration
+8. Triggers Flow 1 (`ci.yml`) against the new release
 
-Release assets never expire and download without a token, so there is no
-scheduled-refresh job — the old 90-day retention clock is gone. Storage is
-bounded only by the prune step (step 8).
+Release assets never expire and download without a token. There is **no**
+automated pruning — few LLVM versions are expected; delete a stale release
+manually when needed:
+
+```bash
+gh release delete <tag> --cleanup-tag --yes   # e.g. tag = llvm-<short-hash>
+```
+
+**Migration note (issue #24):** the legacy Actions-artifact path is kept live
+during Stage 1. A scheduled cron (`refresh` job) resets its 90-day retention
+clock, and `setup_mlir.py` still falls back to it when no release asset exists.
+Both paths are removed in Stage 2 once the release path is confirmed and
+consumers have cut over.
 
 ### When to trigger manually
 
