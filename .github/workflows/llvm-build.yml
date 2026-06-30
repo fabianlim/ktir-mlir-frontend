@@ -98,11 +98,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Two independent existence checks — the release asset (primary) and the
-      # legacy Actions artifact (DEPRECATED, issue #24) — each gates only its own
-      # upload.  They are kept separate so we never skip publishing the release
-      # just because the artifact exists (or vice versa).  gh needs a repo
-      # context, hence the checkout above.
+      # Two independent existence checks; each upload is gated on its own.
+      # Build only if at least one upload target is missing — there is no point
+      # building if we would publish nothing.  Each upload then fires only if
+      # its own target is absent (no needless re-publish/re-upload).
+      #   - release asset (primary)
+      #   - legacy Actions artifact (DEPRECATED, issue #24)
+      # gh needs a repo context, hence the checkout above.
       - name: Check existing release asset / artifact
         id: check
         env:
@@ -133,12 +135,10 @@ jobs:
           fi
           echo "artifact-exists=${ARTIFACT_EXISTS}" >> $GITHUB_OUTPUT
 
-          # Build only if at least one upload target is missing — the build
-          # produces the tarball both uploads consume.  (On a PR the release
-          # publish is skipped anyway, but we still build to validate.)
+          # Build only if at least one target is missing (we would publish it).
           if [ "$RELEASE_EXISTS" = "true" ] && [ "$ARTIFACT_EXISTS" = "true" ]; then
             echo "build=false" >> $GITHUB_OUTPUT
-            echo "::notice::Both sources present; skipping build"
+            echo "::notice::Both release asset and artifact exist; skipping build"
           else
             echo "build=true" >> $GITHUB_OUTPUT
           fi
