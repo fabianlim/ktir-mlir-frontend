@@ -66,7 +66,7 @@ asset first and falls back to the artifact.
 
 **Triggers:**
 - Push to `main` that changes `cmake/llvm-hash.txt` (hash bump)
-- Manual: `workflow_dispatch` with an optional hash override
+- Manual: `workflow_dispatch` with an optional hash override, see [Flow 3](#flow-3--bleeding-edge-workflow_dispatch-with-mlir_wheel) 
 - Pull request that touches `llvm-build.yml` (builds + packages to validate the
   workflow, but does **not** publish a release)
 - Scheduled cron (1st of every other month) — drives the Artifacts Flow refresh
@@ -96,7 +96,7 @@ Flow 1 (`ci.yml`) against the new build.
 
 `actions/upload-artifact` uploads the same tarball as a 90-day Actions artifact.
 
-### Manual Invocation
+### Manual Invocation (alternatively see [Flow 3](#flow-3--bleeding-edge-workflow_dispatch-with-mlir_wheel))
 
 Use this to (re)produce a build without bumping `cmake/llvm-hash.txt` (e.g.
 after an accidental delete, or a one-off hash). A single dispatch builds once
