@@ -23,9 +23,12 @@ LogicalResult SpyreMemorySpaceAttr::verify(
     return emitError() << "core affinity must be non-negative, but got: "
                        << core;
 
-  if (value != SpyreMemorySpaceKind::LX) {
+  // Core affinity is meaningful for core-local spaces: LX (per-core scratchpad)
+  // and LRF (per-PE compute-local register file).
+  if (value != SpyreMemorySpaceKind::LX &&
+      value != SpyreMemorySpaceKind::LRF) {
     return emitError()
-           << "core affinity is only valid for LX memory spaces, "
+           << "core affinity is only valid for LX/LRF memory spaces, "
               "but got memory space '"
            << stringifySpyreMemorySpaceKind(value) << "' with core = " << core;
   }

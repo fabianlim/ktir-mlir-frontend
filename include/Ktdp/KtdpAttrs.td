@@ -26,7 +26,11 @@ def Ktdp_SpyreMemorySpaceKind : I32EnumAttr<
     [
       I32EnumAttrCase<"unspecified", 0, "unspecified">,
       I32EnumAttrCase<"LX",  1, "LX">,
-      I32EnumAttrCase<"HBM", 2, "HBM">
+      I32EnumAttrCase<"HBM", 2, "HBM">,
+      // Compute-local register file (per-PE accumulator). Lowers to
+      // `dataflow.get_local_unit {name="lrfreg"}` at pass 20; used to carry a
+      // reduction/matmul K-accumulator that cannot be a loop-carried SSA value.
+      I32EnumAttrCase<"LRF", 3, "LRF">
     ]> {
   let cppNamespace = "::mlir::ktdp";
   let genSpecializedAttr = 0;
