@@ -321,6 +321,12 @@ def main():
              "Defaults to the repo inferred from git remote origin.",
     )
     parser.add_argument(
+        "--variant",
+        default="",
+        help="Build variant suffix (e.g. 'dev-dylib' for Debug+dylib builds). "
+             "Empty string (default) selects the standard Release/static artifact.",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Check artifact availability without downloading or installing. "
              "Exits 0 if the artifact is available (cached or on GitHub), 1 if not.",
@@ -352,7 +358,8 @@ def main():
 
     short_hash = llvm_hash[:8]
     os_name, arch = detect_os_arch()
-    artifact_name = f"llvm-{short_hash}-{os_name}-{arch}"
+    variant = args.variant
+    artifact_name = f"llvm-{short_hash}{'-' + variant if variant else ''}-{os_name}-{arch}"
 
     # ── Path 3: cache hit ───────────────────────────────────────────────────
     # No locking needed: GitHub Actions runners are isolated per job, and local

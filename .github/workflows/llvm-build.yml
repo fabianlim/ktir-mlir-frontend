@@ -97,9 +97,10 @@ jobs:
       fail-fast: true
       matrix:
         config:
-          - { runner: "Ubuntu 22.04 x64",   runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64",   linker: "lld" }
-          - { runner: "macOS 15 ARM64",      runs-on: "macos-15",         os: "macos",  arch: "arm64", linker: ""    }
-          - { runner: "Ubuntu 22.04 ARM64",  runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64", linker: "lld" }
+          - { runner: "Ubuntu 22.04 x64",        runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64",   linker: "lld", variant: ""    }
+          - { runner: "macOS 15 ARM64",           runs-on: "macos-15",         os: "macos",  arch: "arm64", linker: "",    variant: ""    }
+          - { runner: "Ubuntu 22.04 ARM64",       runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64", linker: "lld", variant: ""    }
+          - { runner: "Ubuntu 22.04 x64 (dev-dylib)", runs-on: "ubuntu-22.04",   os: "ubuntu", arch: "x64",   linker: "lld", variant: "dev-dylib" }
 
     steps:
       - uses: actions/checkout@v4
@@ -116,7 +117,8 @@ jobs:
         run: |
           SHORT="${{ needs.get-hash.outputs.llvm-short-hash }}"
           TAG="${{ needs.get-hash.outputs.release-tag }}"
-          ARTIFACT_NAME="llvm-${SHORT}-${{ matrix.config.os }}-${{ matrix.config.arch }}"
+          VARIANT="${{ matrix.config.variant }}"
+          ARTIFACT_NAME="llvm-${SHORT}${VARIANT:+-${VARIANT}}-${{ matrix.config.os }}-${{ matrix.config.arch }}"
           echo "artifact-name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
           if gh release view "$TAG" --json assets \
                -q '.assets[].name' 2>/dev/null | grep -qx "${ARTIFACT_NAME}.tar.gz"; then
@@ -202,7 +204,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.SCCACHE_DIR }}
-          key:          ${{ matrix.config.os }}-${{ matrix.config.arch }}-${{ needs.get-hash.outputs.llvm-short-hash }}
+          key:          ${{ matrix.config.os }}-${{ matrix.config.arch }}-${{ needs.get-hash.outputs.llvm-short-hash }}${{ matrix.config.variant && format('-{0}', matrix.config.variant) || '' }}
           restore-keys: ${{ matrix.config.os }}-${{ matrix.config.arch }}-
           save-always: true
 
@@ -214,7 +216,6 @@ jobs:
         run: |
           CMAKE_ARGS=(
             -GNinja -B llvm-project/build
-            -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=clang
             -DCMAKE_CXX_COMPILER=clang++
             -DCMAKE_C_COMPILER_LAUNCHER=sccache
@@ -233,16 +234,34 @@ jobs:
           )
           # lld is 2-4x faster than GNU ld for linking; leave empty on macOS (ld64 is fast on ARM64)
           [ -n "${{ matrix.config.linker }}" ] && CMAKE_ARGS+=( -DLLVM_USE_LINKER="${{ matrix.config.linker }}" )
-          if [ "$IS_STABLE_BUILD" = "true" ]; then
+          if [ "${{ matrix.config.variant }}" = "dev-dylib" ]; then
+            # Dev builds match the developer LLVM build recommended in the
+            # dataflow-scheduler README: RelWithDebInfo + shared libs + assertions.
+            # BUILD_SHARED_LIBS=ON builds every LLVM/MLIR component as a separate .so
+            # (what dataflow-scheduler's CMakeLists.txt detects and handles), which is
+            # distinct from LLVM_BUILD_LLVM_DYLIB (single aggregate libLLVM.so).
+            # Assertions are forced on explicitly, bypassing stable-tag detection.
             CMAKE_ARGS+=(
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo
+              -DBUILD_SHARED_LIBS=ON
+              -DLLVM_ENABLE_ASSERTIONS=ON
               -DLLVM_INCLUDE_TESTS=OFF
               -DLLVM_INCLUDE_EXAMPLES=OFF
               -DLLVM_INCLUDE_BENCHMARKS=OFF
             )
           else
-            # Assertions catch MLIR internal invariant violations in nightly builds;
-            # unnecessary overhead for a vetted stable tag.
-            CMAKE_ARGS+=( -DLLVM_ENABLE_ASSERTIONS=ON )
+            CMAKE_ARGS+=( -DCMAKE_BUILD_TYPE=Release )
+            if [ "$IS_STABLE_BUILD" = "true" ]; then
+              CMAKE_ARGS+=(
+                -DLLVM_INCLUDE_TESTS=OFF
+                -DLLVM_INCLUDE_EXAMPLES=OFF
+                -DLLVM_INCLUDE_BENCHMARKS=OFF
+              )
+            else
+              # Assertions catch MLIR internal invariant violations in nightly builds;
+              # unnecessary overhead for a vetted stable tag.
+              CMAKE_ARGS+=( -DLLVM_ENABLE_ASSERTIONS=ON )
+            fi
           fi
           cmake "${CMAKE_ARGS[@]}" llvm-project/llvm
 
