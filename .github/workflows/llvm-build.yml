@@ -97,10 +97,10 @@ jobs:
       fail-fast: true
       matrix:
         config:
-          - { runner: "Ubuntu 22.04 x64",        runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64",   linker: "lld", variant: ""    }
-          - { runner: "macOS 15 ARM64",           runs-on: "macos-15",         os: "macos",  arch: "arm64", linker: "",    variant: ""    }
-          - { runner: "Ubuntu 22.04 ARM64",       runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64", linker: "lld", variant: ""    }
-          - { runner: "Ubuntu 22.04 x64 (dev-dylib)", runs-on: "ubuntu-22.04",   os: "ubuntu", arch: "x64",   linker: "lld", variant: "dev-dylib" }
+          # - { runner: "Ubuntu 22.04 x64",             runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64",   linker: "lld", variant: "",         strip-llvm-archives: false }
+          # - { runner: "macOS 15 ARM64",               runs-on: "macos-15",         os: "macos",  arch: "arm64", linker: "",    variant: "",         strip-llvm-archives: false }
+          # - { runner: "Ubuntu 22.04 ARM64",           runs-on: "ubuntu-22.04-arm", os: "ubuntu", arch: "arm64", linker: "lld", variant: "",         strip-llvm-archives: false }
+          - { runner: "Ubuntu 22.04 x64 (dev-dylib)", runs-on: "ubuntu-22.04",     os: "ubuntu", arch: "x64",   linker: "lld", variant: "dev-dylib", strip-llvm-archives: true  }
 
     steps:
       - uses: actions/checkout@v4
@@ -235,15 +235,15 @@ jobs:
           # lld is 2-4x faster than GNU ld for linking; leave empty on macOS (ld64 is fast on ARM64)
           [ -n "${{ matrix.config.linker }}" ] && CMAKE_ARGS+=( -DLLVM_USE_LINKER="${{ matrix.config.linker }}" )
           if [ "${{ matrix.config.variant }}" = "dev-dylib" ]; then
-            # Dev builds match the developer LLVM build recommended in the
-            # dataflow-scheduler README: RelWithDebInfo + shared libs + assertions.
-            # BUILD_SHARED_LIBS=ON builds every LLVM/MLIR component as a separate .so
-            # (what dataflow-scheduler's CMakeLists.txt detects and handles), which is
-            # distinct from LLVM_BUILD_LLVM_DYLIB (single aggregate libLLVM.so).
+            # Dev builds: RelWithDebInfo + aggregate LLVM dylib + assertions.
+            # LLVM_BUILD_LLVM_DYLIB produces libLLVM.so; LLVM_LINK_LLVM_DYLIB
+            # makes MLIR .a files depend on it instead of individual LLVM .a files.
+            # Individual LLVM .a archives are stripped post-install to create a dylib only build, see below.
             # Assertions are forced on explicitly, bypassing stable-tag detection.
             CMAKE_ARGS+=(
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
-              -DBUILD_SHARED_LIBS=ON
+              -DLLVM_BUILD_LLVM_DYLIB=ON
+              -DLLVM_LINK_LLVM_DYLIB=ON
               -DLLVM_ENABLE_ASSERTIONS=ON
               -DLLVM_INCLUDE_TESTS=OFF
               -DLLVM_INCLUDE_EXAMPLES=OFF
@@ -273,6 +273,14 @@ jobs:
           else
             ninja -C llvm-project/build check-mlir install
           fi
+
+      # Strip individual LLVM .a archives when strip-llvm-archives is true.
+      # LLVM_BUILD_LLVM_DYLIB installs both libLLVM.so and ~500 individual .a
+      # files; consumers link LLVM via libLLVM.so so the .a files are dead weight.
+      # MLIR .a files are kept — MLIR components are not aggregated into a dylib.
+      - name: Strip LLVM static archives (for dylib builds only)
+        if: ${{ steps.check.outputs.exists != 'true' && matrix.config.strip-llvm-archives && success() }}
+        run: find "${{ env.LLVM_INSTALL_DIR }}/lib" -name 'libLLVM*.a' -delete
 
       - name: Package
         if: ${{ steps.check.outputs.exists != 'true' && success() }}
