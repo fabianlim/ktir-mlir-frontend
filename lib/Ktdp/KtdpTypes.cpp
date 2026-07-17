@@ -10,6 +10,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/IntegerSet.h"
 #include "mlir/IR/TypeSupport.h"
 
 using namespace mlir;
@@ -157,7 +158,8 @@ Type RuntimeArgType::parse(AsmParser &parser) {
 //===----------------------------------------------------------------------===//
 
 LogicalResult TileFutureType::verify(
-    function_ref<InFlightDiagnostic()> emitError, ArrayRef<Type> partialTypes) {
+    function_ref<InFlightDiagnostic()> emitError, ArrayRef<Type> partialTypes,
+    IntegerSet groups) {
   if (partialTypes.empty())
     return emitError() << "tile_future must carry at least one partial type";
 
@@ -168,12 +170,19 @@ LogicalResult TileFutureType::verify(
                          << t;
   }
 
+  if (groups.getNumDims() != 1)
+    return emitError() << "tile_future `groups` must have exactly one dimension (g)";
+  if (groups.getNumSymbols() != 0)
+    return emitError() << "tile_future `groups` must have no symbols";
+
   return success();
 }
 
 void TileFutureType::print(AsmPrinter &printer) const {
   printer << "<";
   llvm::interleaveComma(getPartialTypes(), printer);
+  printer << ", groups = ";
+  printer.printAttribute(IntegerSetAttr::get(getGroups()));
   printer << ">";
 }
 
@@ -181,15 +190,37 @@ Type TileFutureType::parse(AsmParser &parser) {
   if (parser.parseLess()) return Type();
 
   SmallVector<Type, 2> partialTypes;
-  do {
+  // Parse the first type (required)
+  {
     Type t;
     if (parser.parseType(t)) return Type();
     partialTypes.push_back(t);
-  } while (succeeded(parser.parseOptionalComma()));
+  }
+
+  IntegerSet groups;
+  while (succeeded(parser.parseOptionalComma())) {
+    // Peek: is this `groups = <set>`?
+    if (succeeded(parser.parseOptionalKeyword("groups"))) {
+      IntegerSetAttr groupsAttr;
+      if (parser.parseEqual() || parser.parseAttribute(groupsAttr))
+        return Type();
+      groups = groupsAttr.getValue();
+      break;
+    }
+    Type t;
+    if (parser.parseType(t)) return Type();
+    partialTypes.push_back(t);
+  }
+
+  if (groups == IntegerSet()) {
+    parser.emitError(parser.getCurrentLocation(),
+                     "expected `groups = <integer-set>` in tile_future type");
+    return Type();
+  }
 
   if (parser.parseGreater()) return Type();
 
   return TileFutureType::getChecked(
       [&] { return parser.emitError(parser.getCurrentLocation()); },
-      partialTypes);
+      partialTypes, groups);
 }

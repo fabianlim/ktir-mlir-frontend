@@ -1318,18 +1318,15 @@ std::optional<llvm::DenseSet<int64_t>> depTilesOf(IntegerSet depSet,
 
 // Syntax:
 //   ktdp.inter_tile_produce
-//       producer_tiles_per_group = <set>, groups = <set>
-//       : T_p_1, ..., T_p_N -> !ktdp.tile_future<T_p_1, ..., T_p_N>
+//       producer_tiles_per_group = <set>
+//       : T_p_1, ..., T_p_N -> !ktdp.tile_future<T_p_1, ..., T_p_N, groups = <set>>
 //       { ^bb0(%gid: index): ktdp.yield_partial ... }
 ParseResult InterTileProduceOp::parse(OpAsmParser& parser,
                                       OperationState& result) {
-  IntegerSetAttr producerSet, groupsSet;
+  IntegerSetAttr producerSet;
   if (parser.parseKeyword("producer_tiles_per_group") || parser.parseEqual() ||
       parser.parseAttribute(producerSet, "producer_tiles_per_group",
-                            result.attributes) ||
-      parser.parseComma() || parser.parseKeyword("groups") ||
-      parser.parseEqual() ||
-      parser.parseAttribute(groupsSet, "groups", result.attributes))
+                            result.attributes))
     return failure();
 
   if (parser.parseOptionalAttrDict(result.attributes)) return failure();
@@ -1350,10 +1347,9 @@ ParseResult InterTileProduceOp::parse(OpAsmParser& parser,
 }
 
 void InterTileProduceOp::print(OpAsmPrinter& p) {
-  p << " producer_tiles_per_group = " << getProducerTilesPerGroupAttr()
-    << ", groups = " << getGroupsAttr();
+  p << " producer_tiles_per_group = " << getProducerTilesPerGroupAttr();
   p.printOptionalAttrDict((*this)->getAttrs(),
-                          /*elidedAttrs=*/{"producer_tiles_per_group", "groups"});
+                          /*elidedAttrs=*/{"producer_tiles_per_group"});
   p << " : ";
   llvm::interleaveComma(getPartialTypes(), p);
   p << " -> " << getFuture().getType() << ' ';
@@ -1390,7 +1386,7 @@ LogicalResult InterTileProduceOp::verify() {
              << " does not match future partial type " << partials[i];
 
   // The producer set's symbol must be the group index `g`; groups set has none.
-  IntegerSet groupsSet = getGroups().getValue();
+  IntegerSet groupsSet = getGroups();
   IntegerSet producerSet = getProducerTilesPerGroup().getValue();
   if (groupsSet.getNumSymbols() != 0)
     return emitOpError("`groups` integer set must not have symbols");
@@ -1431,10 +1427,10 @@ LogicalResult InterTileProduceOp::verify() {
 
 // Syntax:
 //   ktdp.inter_tile_reduce(%future)
-//       consumer_tiles_per_group = <set>, groups = <set>,
+//       consumer_tiles_per_group = <set>,
 //       [producer_dependency_per_consumer = <set>,]
 //       identity(%id_1 : T_p_1, ..., %id_N : T_p_N)
-//       : !ktdp.tile_future<...> -> T_r_1, ..., T_r_N
+//       : !ktdp.tile_future<..., groups = <set>> -> T_r_1, ..., T_r_N
 //       { ^bb0(...2N args...): ktdp.yield_reduced ... }
 ParseResult InterTileReduceOp::parse(OpAsmParser& parser,
                                      OperationState& result) {
@@ -1443,13 +1439,10 @@ ParseResult InterTileReduceOp::parse(OpAsmParser& parser,
       parser.parseRParen())
     return failure();
 
-  IntegerSetAttr consumerSet, groupsSet;
+  IntegerSetAttr consumerSet;
   if (parser.parseKeyword("consumer_tiles_per_group") || parser.parseEqual() ||
       parser.parseAttribute(consumerSet, "consumer_tiles_per_group",
-                            result.attributes) ||
-      parser.parseComma() || parser.parseKeyword("groups") ||
-      parser.parseEqual() ||
-      parser.parseAttribute(groupsSet, "groups", result.attributes))
+                            result.attributes))
     return failure();
 
   // Optional producer_dependency_per_consumer.
@@ -1508,7 +1501,7 @@ ParseResult InterTileReduceOp::parse(OpAsmParser& parser,
 
 void InterTileReduceOp::print(OpAsmPrinter& p) {
   p << '(' << getFuture() << ") consumer_tiles_per_group = "
-    << getConsumerTilesPerGroupAttr() << ", groups = " << getGroupsAttr();
+    << getConsumerTilesPerGroupAttr();
   if (auto dep = getProducerDependencyPerConsumerAttr())
     p << ", producer_dependency_per_consumer = " << dep;
   p << ", identity(";
@@ -1518,7 +1511,7 @@ void InterTileReduceOp::print(OpAsmPrinter& p) {
   p << ')';
   p.printOptionalAttrDict(
       (*this)->getAttrs(),
-      /*elidedAttrs=*/{"consumer_tiles_per_group", "groups",
+      /*elidedAttrs=*/{"consumer_tiles_per_group",
                        "producer_dependency_per_consumer",
                        "operandSegmentSizes"});
   p << " : " << getFuture().getType() << " -> ";
@@ -1620,7 +1613,7 @@ LogicalResult InterTileReduceOp::verify() {
   // open as Q1 -- but this implementation supports only the two modes above).
   auto produceOp = getFuture().getDefiningOp<InterTileProduceOp>();
   if (produceOp) {
-    IntegerSet groupsSet = getGroups().getValue();
+    IntegerSet groupsSet = getGroups();
     IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
     IntegerSet producerSet = produceOp.getProducerTilesPerGroup().getValue();
     if (consumerSet.getNumSymbols() != 1)
@@ -1654,13 +1647,6 @@ LogicalResult InterTileReduceOp::verify() {
     // else: unbounded group range -- defer to a future symbolic check.
   }
 
-  // Check 4: `groups` on reduce must match `groups` on the paired produce.
-  if (produceOp) {
-    if (getGroups().getValue() != produceOp.getGroups().getValue())
-      return emitOpError("`groups` does not match the paired "
-                         "`inter_tile_produce`");
-  }
-
   // Check 5: producer_dependency_per_consumer (when present).
   //   (a) Subset: every p in D(c, g) must be in P(g).
   //   (b) Coverage: every p in P(g) must appear in D(c, g) for some c in C(g).
@@ -1670,7 +1656,7 @@ LogicalResult InterTileReduceOp::verify() {
       if (depSet.getNumSymbols() != 2)
         return emitOpError("`producer_dependency_per_consumer` must have "
                            "exactly two symbols (c, g)");
-      IntegerSet groupsSet = getGroups().getValue();
+      IntegerSet groupsSet = getGroups();
       IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
       IntegerSet producerSet = produceOp.getProducerTilesPerGroup().getValue();
       if (auto groupVals = groupValues(groupsSet)) {

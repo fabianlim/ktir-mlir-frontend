@@ -224,7 +224,7 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
     Syntax:
 
     ```
-    tile_future-type ::= `tile_future` `<` type (`,` type)* `>`
+    tile_future-type ::= `tile_future` `<` type (`,` type)* `,` `groups` `=` integer-set `>`
     ```
 
     The `tile_future` type is the SSA handle returned by
@@ -238,24 +238,31 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
     N >= 1 roles are supported; N >= 2 expresses correlated tuples such as the
     (values, indices) pair of an argmax-style reduction.
 
+    The `groups` integer set is a 1D set over a single dimension `g` with no
+    symbols; it defines the range of valid group indices.
+
     Examples:
 
     ```mlir
     // Single partial role.
-    !ktdp.tile_future<tensor<1x64xf16>>
+    !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g == 0)>>
 
     // Two correlated roles (argmax-style: values, indices).
-    !ktdp.tile_future<tensor<128xf32>, tensor<128xi32>>
+    !ktdp.tile_future<tensor<128xf32>, tensor<128xi32>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
     ```
   }];
 
-  let parameters = (ins ArrayRefParameter<"::mlir::Type">:$partialTypes);
+  let parameters = (ins
+    ArrayRefParameter<"::mlir::Type">:$partialTypes,
+    "::mlir::IntegerSet":$groups
+  );
 
   let builders = [
     TypeBuilderWithInferredContext<(ins
-      "::llvm::ArrayRef<::mlir::Type>":$partialTypes
+      "::llvm::ArrayRef<::mlir::Type>":$partialTypes,
+      "::mlir::IntegerSet":$groups
     ), [{
-      return $_get(partialTypes.front().getContext(), partialTypes);
+      return $_get(partialTypes.front().getContext(), partialTypes, groups);
     }]>
   ];
 

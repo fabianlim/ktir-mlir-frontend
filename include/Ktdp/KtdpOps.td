@@ -130,17 +130,16 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
     Attributes:
     - `producer_tiles_per_group` — parameterized affine integer set `(i)[g]`
       selecting which tiles produce per group.
-    - `groups` — affine integer set defining the range of valid group indices.
 
+    The `groups` integer set is embedded in the result `!ktdp.tile_future` type.
     The result `!ktdp.tile_future` must have exactly one use: the single
     delivery op that consumes it.
 
     Example:
     ```mlir
     %f = ktdp.inter_tile_produce
-        producer_tiles_per_group = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>,
-        groups                   = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-        : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>>
+        producer_tiles_per_group = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+        : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
     {
       ^bb0(%gid: index):
         ktdp.yield_partial %partial : tensor<1x64xf16>
@@ -149,8 +148,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
   }];
 
   let arguments = (ins
-    Builtin_IntegerSetAttr:$producer_tiles_per_group,
-    Builtin_IntegerSetAttr:$groups);
+    Builtin_IntegerSetAttr:$producer_tiles_per_group);
   let results = (outs Ktdp_TileFutureType:$future);
   let regions = (region SizedRegion<1>:$body);
 
@@ -162,6 +160,10 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
     ::llvm::ArrayRef<::mlir::Type> getPartialTypes() {
       return ::llvm::cast<TileFutureType>(getFuture().getType())
           .getPartialTypes();
+    }
+    /// The groups set, read from the result tile_future type.
+    ::mlir::IntegerSet getGroups() {
+      return ::llvm::cast<TileFutureType>(getFuture().getType()).getGroups();
     }
   }];
 }
@@ -183,9 +185,10 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
 
     Attributes:
     - `consumer_tiles_per_group` — tiles that receive the reduced result.
-    - `groups` — must match the corresponding `inter_tile_produce`.
     - `producer_dependency_per_consumer` *(optional)* — per-tile dependency
       set; when absent, full-barrier semantics (all producers contribute).
+
+    The `groups` integer set is inferred from the operand `!ktdp.tile_future` type.
 
     `identity` provides one identity tensor per role (matching `T_p_i`),
     hoisted before the op and shared across groups/tiles.
@@ -198,9 +201,8 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     ```mlir
     %r = ktdp.inter_tile_reduce(%f)
         consumer_tiles_per_group = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>,
-        groups                   = affine_set<(g) : (g >= 0, -g + 7 >= 0)>,
         identity(%add_id : tensor<1x64xf16>)
-        : !ktdp.tile_future<tensor<1x64xf16>> -> tensor<64xf16>
+        : !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>> -> tensor<64xf16>
     {
       ^bb0(%lhs: tensor<1x64xf16>, %rhs: tensor<1x64xf16>):
         %s = linalg.add ins(%lhs, %rhs : tensor<1x64xf16>, tensor<1x64xf16>)
@@ -214,7 +216,6 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     Ktdp_TileFutureType:$future,
     Variadic<AnyTensor>:$identity,
     Builtin_IntegerSetAttr:$consumer_tiles_per_group,
-    Builtin_IntegerSetAttr:$groups,
     OptionalAttr<Builtin_IntegerSetAttr>:$producer_dependency_per_consumer);
   let results = (outs Variadic<AnyTensor>:$results);
   let regions = (region SizedRegion<1>:$combiner);
@@ -227,6 +228,10 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     ::llvm::ArrayRef<::mlir::Type> getPartialTypes() {
       return ::llvm::cast<TileFutureType>(getFuture().getType())
           .getPartialTypes();
+    }
+    /// The groups set, read from the operand tile_future type.
+    ::mlir::IntegerSet getGroups() {
+      return ::llvm::cast<TileFutureType>(getFuture().getType()).getGroups();
     }
   }];
 }
