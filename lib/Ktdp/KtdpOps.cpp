@@ -1317,41 +1317,6 @@ std::optional<llvm::DenseSet<int64_t>> depTilesOf(IntegerSet depSet,
 }  // namespace
 
 // Syntax:
-//   ktdp.inter_tile_produce
-//       producer_tiles_per_group = <set>
-//       -> !ktdp.tile_future<T_p_1, ..., T_p_N, groups = <set>>
-//       { ^bb0(%gid: index): ktdp.yield_partial ... }
-ParseResult InterTileProduceOp::parse(OpAsmParser& parser,
-                                      OperationState& result) {
-  IntegerSetAttr producerSet;
-  if (parser.parseKeyword("producer_tiles_per_group") || parser.parseEqual() ||
-      parser.parseAttribute(producerSet, "producer_tiles_per_group",
-                            result.attributes))
-    return failure();
-
-  if (parser.parseOptionalAttrDict(result.attributes)) return failure();
-
-  // -> future type.
-  Type futureType;
-  if (parser.parseArrow() || parser.parseType(futureType))
-    return failure();
-  result.addTypes(futureType);
-
-  // Producer region.
-  Region* body = result.addRegion();
-  if (parser.parseRegion(*body, /*arguments=*/{}, /*enableNameShadowing=*/false))
-    return failure();
-  return success();
-}
-
-void InterTileProduceOp::print(OpAsmPrinter& p) {
-  p << " producer_tiles_per_group = " << getProducerTilesPerGroupAttr();
-  p.printOptionalAttrDict((*this)->getAttrs(),
-                          /*elidedAttrs=*/{"producer_tiles_per_group"});
-  p << " -> " << getFuture().getType() << ' ';
-  p.printRegion(getBody(), /*printEntryBlockArgs=*/true,
-                /*printBlockTerminators=*/true);
-}
 
 LogicalResult InterTileProduceOp::verifyRegions() {
   TileFutureType futureType = getFuture().getType();

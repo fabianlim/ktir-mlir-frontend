@@ -96,6 +96,9 @@ def KTDP_YieldPartialOp : Ktdp_Op<"yield_partial",
   }];
   let arguments = (ins Variadic<AnyRankedTensor>:$values);
   let assemblyFormat = "($values^ `:` type($values))? attr-dict";
+  // Required so ensureTerminator() (called by SingleBlockImplicitTerminator
+  // via the declarative format path) can construct a zero-operand terminator.
+  let builders = [OpBuilder<(ins), [{ $_state.addOperands(ValueRange{}); }]>];
 }
 
 def KTDP_YieldReducedOp : Ktdp_Op<"yield_reduced",
@@ -152,12 +155,9 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
   let results = (outs Ktdp_TileFutureType:$future);
   let regions = (region SizedRegion<1>:$body);
 
-  // Custom format is required because the declarative format would call
-  // ensureTerminator() which needs a 0-argument YieldPartialOp::build(builder,
-  // state) overload. Since YieldPartialOp requires a ValueRange, the implicit
-  // terminator mechanism cannot construct it, so a custom parser is used that
-  // skips ensureTerminator.
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat =
+      "`producer_tiles_per_group` `=` $producer_tiles_per_group attr-dict"
+      " `->` type($future) $body";
   let hasRegionVerifier = 1;
 
   let extraClassDeclaration = [{
