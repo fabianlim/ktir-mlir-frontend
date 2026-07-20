@@ -1354,7 +1354,7 @@ void InterTileProduceOp::print(OpAsmPrinter& p) {
 }
 
 LogicalResult InterTileProduceOp::verify() {
-  auto futureType = cast<TileFutureType>(getFuture().getType());
+  TileFutureType futureType = getFuture().getType();
   ArrayRef<RankedTensorType> partials = futureType.getPartialTypes();
 
   // Single-use invariant (§2.3): exactly one delivery op consumes the future.

@@ -163,12 +163,11 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
   let extraClassDeclaration = [{
     /// Convenience: the partial types carried by the produced future.
     ::llvm::ArrayRef<::mlir::RankedTensorType> getPartialTypes() {
-      return ::llvm::cast<TileFutureType>(getFuture().getType())
-          .getPartialTypes();
+      return getFuture().getType().getPartialTypes();
     }
     /// The groups set, read from the result tile_future type.
     ::mlir::IntegerSet getGroups() {
-      return ::llvm::cast<TileFutureType>(getFuture().getType()).getGroups();
+      return getFuture().getType().getGroups();
     }
   }];
 }
@@ -231,12 +230,11 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
   let extraClassDeclaration = [{
     /// Convenience: the partial types carried by the consumed future.
     ::llvm::ArrayRef<::mlir::RankedTensorType> getPartialTypes() {
-      return ::llvm::cast<TileFutureType>(getFuture().getType())
-          .getPartialTypes();
+      return getFuture().getType().getPartialTypes();
     }
     /// The groups set, read from the operand tile_future type.
     ::mlir::IntegerSet getGroups() {
-      return ::llvm::cast<TileFutureType>(getFuture().getType()).getGroups();
+      return getFuture().getType().getGroups();
     }
   }];
 }
