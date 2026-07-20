@@ -97,41 +97,6 @@ func.func @bad_producer_overlap(%p: tensor<1x64xf16>) {
 }
 
 // -----
-// Consumer that did not produce: C = {4g+2..4g+5}, P = {4g..4g+3} -> C not subset
-// of P. Unsupported (open question Q1).
-#q1_prod = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#q1_cons = affine_set<(i)[g] : (i - 4*g - 2 >= 0, -i + 4*g + 5 >= 0)>
-#q1_grp  = affine_set<(g) : (g == 0)>
-func.func @bad_consumer_not_subset(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<64xf16> {
-  %f = ktdp.inter_tile_produce producer_tiles_per_group = #q1_prod
-      -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #q1_grp>
-  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  // expected-error @below {{consumer_tiles_per_group for group 0 is not a subset of producer_tiles_per_group}}
-  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #q1_cons, identity(%id : tensor<1x64xf16>)
-      : !ktdp.tile_future<(tensor<1x64xf16>), groups = #q1_grp> -> tensor<64xf16>
-  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
-  return %r : tensor<64xf16>
-}
-
-// -----
-// Reduce-to-subset: C = {4g, 4g+1} is a strict subset of P = {4g..4g+3} with >1
-// tile. Spec-legal but UNSUPPORTED by this implementation (only all-reduce and
-// reduce-to-one are supported).
-#rs_prod = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#rs_cons = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 1 >= 0)>
-#rs_grp  = affine_set<(g) : (g == 0)>
-func.func @bad_reduce_to_subset(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<64xf16> {
-  %f = ktdp.inter_tile_produce producer_tiles_per_group = #rs_prod
-      -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #rs_grp>
-  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  // expected-error @below {{reduce-to-subset is unsupported; only all-reduce and reduce-to-one are supported}}
-  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #rs_cons, identity(%id : tensor<1x64xf16>)
-      : !ktdp.tile_future<(tensor<1x64xf16>), groups = #rs_grp> -> tensor<64xf16>
-  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
-  return %r : tensor<64xf16>
-}
-
-// -----
 // tile_future groups must have exactly one dimension (not zero dims).
 // expected-error @below {{tile_future `groups` must have exactly one dimension (g)}}
 func.func @bad_future_groups_zero_dims(%a: !ktdp.tile_future<(tensor<1x64xf16>), groups = affine_set<() : (0 == 0)>>) { return }

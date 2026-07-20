@@ -1593,98 +1593,18 @@ LogicalResult InterTileReduceOp::verifyRegions() {
              << " with a single unit within-group tile axis collapsed";
   }
 
-  // Consumer-vs-producer relation (§4.1, §4.5, open question Q1).
-  //
-  // The producing op carries `producer_tiles_per_group`; reach it through the
-  // future's def. The future single-use rule (verified on the produce op)
-  // means a well-formed future is defined by exactly one inter_tile_produce;
-  // if we cannot see it (e.g. block/function argument) we cannot compare sets,
-  // so we defer.
-  //
-  // Supported modes (per group g, with P = producer set, C = consumer set):
-  //   * all-reduce:     C == P
-  //   * reduce-to-one:  |C| == 1 and C subset of P
-  // Everything else is rejected as UNSUPPORTED (not a spec violation -- the
-  // spec also permits reduce-to-subset 1<|C|<|P|, and leaves C-not-subset-of-P
-  // open as Q1 -- but this implementation supports only the two modes above).
-  auto produceOp = getFuture().getDefiningOp<InterTileProduceOp>();
-  if (produceOp) {
-    IntegerSet groupsSet = getGroups();
-    IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
-    IntegerSet producerSet = produceOp.getProducerTilesPerGroup().getValue();
-    if (consumerSet.getNumSymbols() != 1)
-      return emitOpError("`consumer_tiles_per_group` must have exactly one "
-                         "symbol (the group index g)");
+  // Local structural checks on the consumer set attribute.
+  IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
+  if (consumerSet.getNumSymbols() != 1)
+    return emitOpError("`consumer_tiles_per_group` must have exactly one "
+                       "symbol (the group index g)");
 
-    if (auto groupVals = groupValues(groupsSet)) {
-      for (int64_t g : *groupVals) {
-        auto cOpt = tilesOf(consumerSet, g);
-        auto pOpt = tilesOf(producerSet, g);
-        if (!cOpt || !pOpt) continue;  // tile bound not static -- defer
-        const auto& c = *cOpt;
-        const auto& p = *pOpt;
-        // Mandated: every consumer must have produced (C subset of P). A
-        // consumer outside the producer set is open question Q1 -- unsupported.
-        for (int64_t tile : c)
-          if (!p.count(tile))
-            return emitOpError("consumer_tiles_per_group for group ")
-                   << g << " is not a subset of producer_tiles_per_group "
-                   << "(a consumer tile that did not produce is unsupported; "
-                   << "see open question Q1)";
-        // Accept all-reduce (C == P) or reduce-to-one (|C| == 1).
-        if (c == p) continue;
-        if (c.size() == 1) continue;
-        return emitOpError("consumer_tiles_per_group for group ")
-               << g << " is a strict subset of producer_tiles_per_group with "
-               << "more than one tile (reduce-to-subset is unsupported; only "
-               << "all-reduce and reduce-to-one are supported)";
-      }
-    }
-    // else: unbounded group range -- defer to a future symbolic check.
-  }
-
-  // Check 5: producer_dependency_per_consumer (when present).
-  //   (a) Subset: every p in D(c, g) must be in P(g).
-  //   (b) Coverage: every p in P(g) must appear in D(c, g) for some c in C(g).
-  if (produceOp) {
-    if (auto depAttr = getProducerDependencyPerConsumerAttr()) {
-      IntegerSet depSet = depAttr.getValue();
-      if (depSet.getNumSymbols() != 2)
-        return emitOpError("`producer_dependency_per_consumer` must have "
-                           "exactly two symbols (c, g)");
-      IntegerSet groupsSet = getGroups();
-      IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
-      IntegerSet producerSet = produceOp.getProducerTilesPerGroup().getValue();
-      if (auto groupVals = groupValues(groupsSet)) {
-        for (int64_t g : *groupVals) {
-          auto cOpt = tilesOf(consumerSet, g);
-          auto pOpt = tilesOf(producerSet, g);
-          if (!cOpt || !pOpt) continue;  // defer if tile bound not static
-          llvm::DenseSet<int64_t> covered;
-          for (int64_t c : *cOpt) {
-            auto dOpt = depTilesOf(depSet, c, g);
-            if (!dOpt) continue;
-            for (int64_t p : *dOpt) {
-              // (a) subset check
-              if (!pOpt->count(p))
-                return emitOpError(
-                           "producer_dependency_per_consumer for consumer ")
-                       << c << " group " << g << " references producer tile "
-                       << p << " which is not in producer_tiles_per_group";
-              covered.insert(p);
-            }
-          }
-          // (b) coverage check
-          for (int64_t p : *pOpt)
-            if (!covered.count(p))
-              return emitOpError(
-                         "producer_dependency_per_consumer for group ")
-                     << g << " does not cover producer tile " << p
-                     << " (no consumer has it as a dependency)";
-        }
-      }
-    }
-  }
+  // TODO: move producer/consumer set relationship checks to a dedicated pass.
+  // The checks that compare consumer_tiles_per_group against
+  // producer_tiles_per_group (C subset of P, all-reduce vs reduce-to-one mode
+  // gate, producer_dependency_per_consumer coverage/subset) reach outside this
+  // op via getFuture().getDefiningOp<InterTileProduceOp>(), which is not
+  // permitted in a verifier per the MLIR specification.
 
   return success();
 }
