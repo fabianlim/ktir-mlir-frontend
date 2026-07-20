@@ -1483,11 +1483,9 @@ ParseResult InterTileReduceOp::parse(OpAsmParser& parser,
     return failure();
   result.addTypes(resultTypes);
 
-  // Operand segment sizes: 1 future + N identities.
-  result.addAttribute(
-      "operandSegmentSizes",
-      parser.getBuilder().getDenseI32ArrayAttr(
-          {1, static_cast<int32_t>(identityOperands.size())}));
+  // No operandSegmentSizes needed: $future is a required (non-variadic)
+  // operand and $identity is the only variadic, so MLIR infers the boundary
+  // as operand[0] = future, operands[1..] = identity.
 
   Region* combiner = result.addRegion();
   if (parser.parseRegion(*combiner, /*arguments=*/{}))
@@ -1508,8 +1506,7 @@ void InterTileReduceOp::print(OpAsmPrinter& p) {
   p.printOptionalAttrDict(
       (*this)->getAttrs(),
       /*elidedAttrs=*/{"consumer_tiles_per_group",
-                       "producer_dependency_per_consumer",
-                       "operandSegmentSizes"});
+                       "producer_dependency_per_consumer"});
   p << " : " << getFuture().getType() << " -> ";
   llvm::interleaveComma(getResultTypes(), p);
   p << ' ';
