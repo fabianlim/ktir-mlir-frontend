@@ -152,6 +152,11 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
   let results = (outs Ktdp_TileFutureType:$future);
   let regions = (region SizedRegion<1>:$body);
 
+  // Custom format is required because the declarative format would call
+  // ensureTerminator() which needs a 0-argument YieldPartialOp::build(builder,
+  // state) overload. Since YieldPartialOp requires a ValueRange, the implicit
+  // terminator mechanism cannot construct it, so a custom parser is used that
+  // skips ensureTerminator.
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 
