@@ -10,7 +10,7 @@
 func.func @bad_produce_arity(%p: tensor<1x64xf16>) {
   // expected-error @below {{yield_partial yields 1 values but the future carries 2 partial type(s)}}
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, tensor<1x64xf16>, groups = #ag>
+      -> !ktdp.tile_future<tensor<1x64xf16>, tensor<1x64xf16>, groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   return
 }
@@ -22,7 +22,7 @@ func.func @bad_produce_arity(%p: tensor<1x64xf16>) {
 func.func @bad_multiple_uses(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) {
   // expected-error @below {{future result must have exactly one use}}
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #ag>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   %r0 = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
       : !ktdp.tile_future<tensor<1x64xf16>, groups = #ag> -> tensor<64xf16>
@@ -39,7 +39,7 @@ func.func @bad_multiple_uses(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) {
 #ag = affine_set<(g) : (g == 0)>
 func.func @bad_identity_type(%p: tensor<1x64xf16>, %id: tensor<2x64xf16>) -> tensor<64xf16> {
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #ag>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   // expected-error @below {{identity #0 type 'tensor<2x64xf16>' must match future partial type 'tensor<1x64xf16>'}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<2x64xf16>)
@@ -54,7 +54,7 @@ func.func @bad_identity_type(%p: tensor<1x64xf16>, %id: tensor<2x64xf16>) -> ten
 #ag = affine_set<(g) : (g == 0)>
 func.func @bad_collapse_rank(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<1x64xf16> {
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #ag>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   // expected-error @below {{result #0 rank (2) must be one less than partial rank (2)}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
@@ -69,7 +69,7 @@ func.func @bad_collapse_rank(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> ten
 #ag = affine_set<(g) : (g == 0)>
 func.func @bad_collapse_nonunit(%p: tensor<96x64xf16>, %id: tensor<96x64xf16>) -> tensor<64xf16> {
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      : tensor<96x64xf16> -> !ktdp.tile_future<tensor<96x64xf16>, groups = #ag>
+      -> !ktdp.tile_future<tensor<96x64xf16>, groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<96x64xf16> }
   // expected-error @below {{result #0 shape does not match partial #0 with a single unit within-group tile axis collapsed}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<96x64xf16>)
@@ -91,7 +91,7 @@ func.func @bad_future_scalar(%a: !ktdp.tile_future<index, groups = affine_set<(g
 func.func @bad_producer_overlap(%p: tensor<1x64xf16>) {
   // expected-error @below {{producer_tiles_per_group for groups 0 and 1 are not disjoint}}
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #prod_overlap
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #two_groups>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #two_groups>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   return
 }
@@ -104,7 +104,7 @@ func.func @bad_producer_overlap(%p: tensor<1x64xf16>) {
 #q1_grp  = affine_set<(g) : (g == 0)>
 func.func @bad_consumer_not_subset(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<64xf16> {
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #q1_prod
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #q1_grp>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #q1_grp>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   // expected-error @below {{consumer_tiles_per_group for group 0 is not a subset of producer_tiles_per_group}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #q1_cons, identity(%id : tensor<1x64xf16>)
@@ -122,7 +122,7 @@ func.func @bad_consumer_not_subset(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) 
 #rs_grp  = affine_set<(g) : (g == 0)>
 func.func @bad_reduce_to_subset(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<64xf16> {
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #rs_prod
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #rs_grp>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #rs_grp>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
   // expected-error @below {{reduce-to-subset is unsupported; only all-reduce and reduce-to-one are supported}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #rs_cons, identity(%id : tensor<1x64xf16>)

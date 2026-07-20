@@ -139,7 +139,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
     ```mlir
     %f = ktdp.inter_tile_produce
         producer_tiles_per_group = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-        : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
+        -> !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
     {
       ^bb0(%gid: index):
         ktdp.yield_partial %partial : tensor<1x64xf16>

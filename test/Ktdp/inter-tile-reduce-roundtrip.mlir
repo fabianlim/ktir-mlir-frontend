@@ -11,7 +11,7 @@
 
 // CHECK-LABEL:   func.func @reduce_single_role(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf16>, %[[VAL_1:.*]]: tensor<1x64xf16>) -> tensor<64xf16> {
-// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_0]] : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #[[$ATTR_1]]> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_0]] -> !ktdp.tile_future<tensor<1x64xf16>, groups = #[[$ATTR_1]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<1x64xf16>
 // CHECK-NEXT:     }
@@ -25,7 +25,7 @@
 
 // CHECK-LABEL:   func.func @reduce_to_one(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf16>, %[[VAL_1:.*]]: tensor<1x64xf16>) -> tensor<64xf16> {
-// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #[[$ATTR_1]]> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> !ktdp.tile_future<tensor<1x64xf16>, groups = #[[$ATTR_1]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<1x64xf16>
 // CHECK-NEXT:     }
@@ -39,7 +39,7 @@
 
 // CHECK-LABEL:   func.func @reduce_multi_group(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<128x1x1x64xf16>, %[[VAL_1:.*]]: tensor<128x1x1x64xf16>) -> tensor<128x1x64xf16> {
-// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] : tensor<128x1x1x64xf16> -> !ktdp.tile_future<tensor<128x1x1x64xf16>, groups = #[[$ATTR_4]]> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> !ktdp.tile_future<tensor<128x1x1x64xf16>, groups = #[[$ATTR_4]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<128x1x1x64xf16>
 // CHECK-NEXT:     }
@@ -53,7 +53,7 @@
 
 // CHECK-LABEL:   func.func @reduce_argmax(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf32>, %[[VAL_1:.*]]: tensor<1x64xi32>, %[[VAL_2:.*]]: tensor<1x64xf32>, %[[VAL_3:.*]]: tensor<1x64xi32>) -> (tensor<64xf32>, tensor<64xi32>) {
-// CHECK-NEXT:     %[[VAL_4:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] : tensor<1x64xf32>, tensor<1x64xi32> -> !ktdp.tile_future<tensor<1x64xf32>, tensor<1x64xi32>, groups = #[[$ATTR_4]]> {
+// CHECK-NEXT:     %[[VAL_4:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> !ktdp.tile_future<tensor<1x64xf32>, tensor<1x64xi32>, groups = #[[$ATTR_4]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_5:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]], %[[VAL_1]] : tensor<1x64xf32>, tensor<1x64xi32>
 // CHECK-NEXT:     }
@@ -90,7 +90,7 @@ func.func @reduce_single_role(%partial: tensor<1x64xf16>,
                               %add_id: tensor<1x64xf16>) -> tensor<64xf16> {
   %f = ktdp.inter_tile_produce
       producer_tiles_per_group = #group_tiles
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #all_groups>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #all_groups>
   {
     ^bb0(%gid: index):
       ktdp.yield_partial %partial : tensor<1x64xf16>
@@ -121,7 +121,7 @@ func.func @reduce_to_one(%partial: tensor<1x64xf16>,
                          %add_id: tensor<1x64xf16>) -> tensor<64xf16> {
   %f = ktdp.inter_tile_produce
       producer_tiles_per_group = #r2o_prod
-      : tensor<1x64xf16> -> !ktdp.tile_future<tensor<1x64xf16>, groups = #r2o_grp>
+      -> !ktdp.tile_future<tensor<1x64xf16>, groups = #r2o_grp>
   { ^bb0(%gid: index): ktdp.yield_partial %partial : tensor<1x64xf16> }
   %r = ktdp.inter_tile_reduce(%f)
       consumer_tiles_per_group = #r2o_cons,
@@ -146,7 +146,7 @@ func.func @reduce_multi_group(%partial: tensor<128x1x1x64xf16>,
                               %add_id: tensor<128x1x1x64xf16>) -> tensor<128x1x64xf16> {
   %f = ktdp.inter_tile_produce
       producer_tiles_per_group = #mg_tiles
-      : tensor<128x1x1x64xf16> -> !ktdp.tile_future<tensor<128x1x1x64xf16>, groups = #mg_groups>
+      -> !ktdp.tile_future<tensor<128x1x1x64xf16>, groups = #mg_groups>
   {
     ^bb0(%gid: index):
       ktdp.yield_partial %partial : tensor<128x1x1x64xf16>
@@ -177,8 +177,7 @@ func.func @reduce_argmax(%pv: tensor<1x64xf32>, %pi: tensor<1x64xi32>,
     -> (tensor<64xf32>, tensor<64xi32>) {
   %f = ktdp.inter_tile_produce
       producer_tiles_per_group = #bf_tiles
-      : tensor<1x64xf32>, tensor<1x64xi32>
-        -> !ktdp.tile_future<tensor<1x64xf32>, tensor<1x64xi32>, groups = #bf_groups>
+      -> !ktdp.tile_future<tensor<1x64xf32>, tensor<1x64xi32>, groups = #bf_groups>
   {
     ^bb0(%gid: index):
       ktdp.yield_partial %pv, %pi : tensor<1x64xf32>, tensor<1x64xi32>

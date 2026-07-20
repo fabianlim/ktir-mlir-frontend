@@ -1319,7 +1319,7 @@ std::optional<llvm::DenseSet<int64_t>> depTilesOf(IntegerSet depSet,
 // Syntax:
 //   ktdp.inter_tile_produce
 //       producer_tiles_per_group = <set>
-//       : T_p_1, ..., T_p_N -> !ktdp.tile_future<T_p_1, ..., T_p_N, groups = <set>>
+//       -> !ktdp.tile_future<T_p_1, ..., T_p_N, groups = <set>>
 //       { ^bb0(%gid: index): ktdp.yield_partial ... }
 ParseResult InterTileProduceOp::parse(OpAsmParser& parser,
                                       OperationState& result) {
@@ -1331,11 +1331,9 @@ ParseResult InterTileProduceOp::parse(OpAsmParser& parser,
 
   if (parser.parseOptionalAttrDict(result.attributes)) return failure();
 
-  // Partial types ... -> future type.
-  SmallVector<Type> partialTypes;
+  // -> future type.
   Type futureType;
-  if (parser.parseColonTypeList(partialTypes) || parser.parseArrow() ||
-      parser.parseType(futureType))
+  if (parser.parseArrow() || parser.parseType(futureType))
     return failure();
   result.addTypes(futureType);
 
@@ -1350,8 +1348,6 @@ void InterTileProduceOp::print(OpAsmPrinter& p) {
   p << " producer_tiles_per_group = " << getProducerTilesPerGroupAttr();
   p.printOptionalAttrDict((*this)->getAttrs(),
                           /*elidedAttrs=*/{"producer_tiles_per_group"});
-  p << " : ";
-  llvm::interleaveComma(getPartialTypes(), p);
   p << " -> " << getFuture().getType() << ' ';
   p.printRegion(getBody(), /*printEntryBlockArgs=*/true,
                 /*printBlockTerminators=*/true);
