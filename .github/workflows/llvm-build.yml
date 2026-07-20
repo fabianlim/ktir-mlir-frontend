@@ -228,6 +228,10 @@ jobs:
             -DLLVM_ENABLE_TERMINFO=OFF
             -DLLVM_ENABLE_LIBXML2=OFF
             -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+            # Enabled for deeptools compatibility (uses RTTI/exceptions internally). Not best practice;
+            # remove once deeptools no longer relies on these features.
+            -DLLVM_ENABLE_RTTI=ON
+            -DLLVM_ENABLE_EH=ON
             # Use uv-managed Python so MLIRDetectPythonEnv finds nanobind on all platforms
             -DPython3_EXECUTABLE="$(uv python find)"
           )
