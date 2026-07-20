@@ -158,17 +158,10 @@ Type RuntimeArgType::parse(AsmParser &parser) {
 //===----------------------------------------------------------------------===//
 
 LogicalResult TileFutureType::verify(
-    function_ref<InFlightDiagnostic()> emitError, ArrayRef<Type> partialTypes,
-    IntegerSet groups) {
+    function_ref<InFlightDiagnostic()> emitError,
+    ArrayRef<RankedTensorType> partialTypes, IntegerSet groups) {
   if (partialTypes.empty())
     return emitError() << "tile_future must carry at least one partial type";
-
-  for (Type t : partialTypes) {
-    if (!mlir::isa<RankedTensorType>(t))
-      return emitError() << "tile_future partial type must be a ranked tensor, "
-                            "but got: "
-                         << t;
-  }
 
   if (groups.getNumDims() != 1)
     return emitError() << "tile_future `groups` must have exactly one dimension (g)";
@@ -190,12 +183,18 @@ Type TileFutureType::parse(AsmParser &parser) {
   if (parser.parseLess()) return Type();
 
   // Parse the parenthesised partial-type list: `(T_p_1, ..., T_p_N)`.
-  SmallVector<Type, 2> partialTypes;
+  SmallVector<RankedTensorType, 2> partialTypes;
   if (parser.parseLParen()) return Type();
   if (parser.parseCommaSeparatedList([&]() -> ParseResult {
         Type t;
         if (parser.parseType(t)) return failure();
-        partialTypes.push_back(t);
+        auto ranked = mlir::dyn_cast<RankedTensorType>(t);
+        if (!ranked)
+          return parser.emitError(parser.getCurrentLocation(),
+                                  "tile_future partial type must be a ranked "
+                                  "tensor, but got: ")
+                 << t;
+        partialTypes.push_back(ranked);
         return success();
       }))
     return Type();

@@ -1355,7 +1355,7 @@ void InterTileProduceOp::print(OpAsmPrinter& p) {
 
 LogicalResult InterTileProduceOp::verify() {
   auto futureType = cast<TileFutureType>(getFuture().getType());
-  ArrayRef<Type> partials = futureType.getPartialTypes();
+  ArrayRef<RankedTensorType> partials = futureType.getPartialTypes();
 
   // Single-use invariant (§2.3): exactly one delivery op consumes the future.
   if (!getFuture().hasOneUse() && !getFuture().use_empty())
@@ -1518,7 +1518,7 @@ void InterTileReduceOp::print(OpAsmPrinter& p) {
 }
 
 LogicalResult InterTileReduceOp::verify() {
-  ArrayRef<Type> partials = getPartialTypes();
+  ArrayRef<RankedTensorType> partials = getPartialTypes();
   size_t n = partials.size();
 
   // identity: one per role, matching the partial type T_p_i.
@@ -1564,7 +1564,7 @@ LogicalResult InterTileReduceOp::verify() {
   // than the partial rank and the surviving dims are a subsequence of the
   // partial dims (the removed axis must be a unit dimension).
   for (size_t i = 0; i < n; ++i) {
-    auto pTy = cast<RankedTensorType>(partials[i]);
+    RankedTensorType pTy = partials[i];
     auto rTy = dyn_cast<RankedTensorType>(getResult(i).getType());
     if (!rTy)
       return emitOpError("result #") << i << " must be a ranked tensor";

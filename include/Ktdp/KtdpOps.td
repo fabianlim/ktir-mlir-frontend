@@ -94,7 +94,7 @@ def KTDP_YieldPartialOp : Ktdp_Op<"yield_partial",
     value per partial-tensor role. The yielded value types must match the
     partial types carried by the produced `!ktdp.tile_future`.
   }];
-  let arguments = (ins Variadic<AnyTensor>:$values);
+  let arguments = (ins Variadic<AnyRankedTensor>:$values);
   let assemblyFormat = "($values^ `:` type($values))? attr-dict";
 }
 
@@ -108,7 +108,7 @@ def KTDP_YieldReducedOp : Ktdp_Op<"yield_reduced",
     partial-tensor role. The yielded value types must match the partial types
     `T_p_i` (not the rank-reduced result types).
   }];
-  let arguments = (ins Variadic<AnyTensor>:$values);
+  let arguments = (ins Variadic<AnyRankedTensor>:$values);
   let assemblyFormat = "($values^ `:` type($values))? attr-dict";
 }
 
@@ -162,7 +162,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
 
   let extraClassDeclaration = [{
     /// Convenience: the partial types carried by the produced future.
-    ::llvm::ArrayRef<::mlir::Type> getPartialTypes() {
+    ::llvm::ArrayRef<::mlir::RankedTensorType> getPartialTypes() {
       return ::llvm::cast<TileFutureType>(getFuture().getType())
           .getPartialTypes();
     }
@@ -219,10 +219,10 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
 
   let arguments = (ins
     Ktdp_TileFutureType:$future,
-    Variadic<AnyTensor>:$identity,
+    Variadic<AnyRankedTensor>:$identity,
     Builtin_IntegerSetAttr:$consumer_tiles_per_group,
     OptionalAttr<Builtin_IntegerSetAttr>:$producer_dependency_per_consumer);
-  let results = (outs Variadic<AnyTensor>:$results);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region SizedRegion<1>:$combiner);
 
   let hasCustomAssemblyFormat = 1;
@@ -230,7 +230,7 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
 
   let extraClassDeclaration = [{
     /// Convenience: the partial types carried by the consumed future.
-    ::llvm::ArrayRef<::mlir::Type> getPartialTypes() {
+    ::llvm::ArrayRef<::mlir::RankedTensorType> getPartialTypes() {
       return ::llvm::cast<TileFutureType>(getFuture().getType())
           .getPartialTypes();
     }

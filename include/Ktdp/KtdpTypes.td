@@ -257,13 +257,13 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
   }];
 
   let parameters = (ins
-    ArrayRefParameter<"::mlir::Type">:$partialTypes,
+    ArrayRefParameter<"::mlir::RankedTensorType">:$partialTypes,
     "::mlir::IntegerSet":$groups
   );
 
   let builders = [
     TypeBuilderWithInferredContext<(ins
-      "::llvm::ArrayRef<::mlir::Type>":$partialTypes,
+      "::llvm::ArrayRef<::mlir::RankedTensorType>":$partialTypes,
       "::mlir::IntegerSet":$groups
     ), [{
       return $_get(partialTypes.front().getContext(), partialTypes, groups);
