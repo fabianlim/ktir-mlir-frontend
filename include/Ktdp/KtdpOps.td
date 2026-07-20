@@ -158,7 +158,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
   // terminator mechanism cannot construct it, so a custom parser is used that
   // skips ensureTerminator.
   let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 
   let extraClassDeclaration = [{
     /// Convenience: the partial types carried by the produced future.
@@ -225,7 +225,7 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
   let regions = (region SizedRegion<1>:$combiner);
 
   let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 
   let extraClassDeclaration = [{
     /// Convenience: the partial types carried by the consumed future.

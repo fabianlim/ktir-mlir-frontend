@@ -1353,7 +1353,7 @@ void InterTileProduceOp::print(OpAsmPrinter& p) {
                 /*printBlockTerminators=*/true);
 }
 
-LogicalResult InterTileProduceOp::verify() {
+LogicalResult InterTileProduceOp::verifyRegions() {
   TileFutureType futureType = getFuture().getType();
   ArrayRef<RankedTensorType> partials = futureType.getPartialTypes();
 
@@ -1517,7 +1517,7 @@ void InterTileReduceOp::print(OpAsmPrinter& p) {
                 /*printBlockTerminators=*/true);
 }
 
-LogicalResult InterTileReduceOp::verify() {
+LogicalResult InterTileReduceOp::verifyRegions() {
   ArrayRef<RankedTensorType> partials = getPartialTypes();
   size_t n = partials.size();
 
