@@ -273,6 +273,16 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
   let extraClassDeclaration = [{
     /// Number of partial-tensor roles carried by this future.
     size_t getNumPartials() const { return getPartialTypes().size(); }
+
+    /// For each partial type T_p_i, return T_p_i with its first unit (=1)
+    /// dimension removed. This is the expected result type after collapsing
+    /// the within-group tile axis. Used by the RangedTypesMatchWith constraint
+    /// on InterTileReduceOp's $results.
+    ///
+    /// If a partial type has no unit dimension, the partial type itself is
+    /// returned as a placeholder (the constraint will then fail as intended,
+    /// since the result rank would not be one less than the partial rank).
+    ::llvm::SmallVector<::mlir::Type> getReducedPartialTypes() const;
   }];
 
   let genVerifyDecl = 1;

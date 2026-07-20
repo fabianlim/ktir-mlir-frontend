@@ -174,7 +174,11 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
 
 def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     [SingleBlockImplicitTerminator<"::mlir::ktdp::YieldReducedOp">,
-     RecursiveMemoryEffects]> {
+     RecursiveMemoryEffects,
+     RangedTypesMatchWith<
+         "result types must be the partial types with one unit axis collapsed",
+         "future", "results",
+         "::llvm::cast<TileFutureType>($_self).getReducedPartialTypes()">]> {
   let summary = "Reduction delivery op (all-reduce / reduce)";
   let description = [{
     The `ktdp.inter_tile_reduce` operation consumes the `!ktdp.tile_future`

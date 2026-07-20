@@ -56,7 +56,7 @@ func.func @bad_collapse_rank(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> ten
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
       -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  // expected-error @below {{result #0 rank (2) must be one less than partial rank (2)}}
+  // expected-error @below {{result types must be the partial types with one unit axis collapsed}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
       : !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag> -> tensor<1x64xf16>
   { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
@@ -71,7 +71,7 @@ func.func @bad_collapse_nonunit(%p: tensor<96x64xf16>, %id: tensor<96x64xf16>) -
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
       -> !ktdp.tile_future<(tensor<96x64xf16>), groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<96x64xf16> }
-  // expected-error @below {{result #0 shape does not match partial #0 with a single unit within-group tile axis collapsed}}
+  // expected-error @below {{result types must be the partial types with one unit axis collapsed}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<96x64xf16>)
       : !ktdp.tile_future<(tensor<96x64xf16>), groups = #ag> -> tensor<64xf16>
   { ^bb0(%l: tensor<96x64xf16>, %rr: tensor<96x64xf16>): ktdp.yield_reduced %l : tensor<96x64xf16> }

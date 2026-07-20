@@ -1528,11 +1528,6 @@ LogicalResult InterTileReduceOp::verifyRegions() {
              << i << " type " << id.getType()
              << " must match future partial type " << partials[i];
 
-  // results: one per role.
-  if (getResults().size() != n)
-    return emitOpError("expected ")
-           << n << " result(s), got " << getResults().size();
-
   // Reducer region: 2N args (lhs_1..lhs_N, rhs_1..rhs_N) each of type T_p_i.
   Block& block = getCombiner().front();
   if (block.getNumArguments() != 2 * n)
@@ -1556,39 +1551,9 @@ LogicalResult InterTileReduceOp::verifyRegions() {
              << i << " type " << val.getType()
              << " must match partial type " << partials[i];
 
-  // Collapsed-axis shape rule: each result T_r_i is T_p_i with one
-  // within-group tile axis removed. Structural check: result rank is one less
-  // than the partial rank and the surviving dims are a subsequence of the
-  // partial dims (the removed axis must be a unit dimension).
-  for (size_t i = 0; i < n; ++i) {
-    RankedTensorType pTy = partials[i];
-    auto rTy = dyn_cast<RankedTensorType>(getResult(i).getType());
-    if (!rTy)
-      return emitOpError("result #") << i << " must be a ranked tensor";
-    if (rTy.getRank() != pTy.getRank() - 1)
-      return emitOpError("result #")
-             << i << " rank (" << rTy.getRank()
-             << ") must be one less than partial rank (" << pTy.getRank()
-             << "); exactly one within-group tile axis is collapsed";
-    // The collapsed axis must be a unit dim; the remaining dims must match the
-    // result dims in order.
-    ArrayRef<int64_t> pShape = pTy.getShape();
-    ArrayRef<int64_t> rShape = rTy.getShape();
-    bool found = false;
-    for (int64_t axis = 0; axis < pTy.getRank(); ++axis) {
-      if (pShape[axis] != 1) continue;
-      SmallVector<int64_t> collapsed(pShape.begin(), pShape.end());
-      collapsed.erase(collapsed.begin() + axis);
-      if (ArrayRef<int64_t>(collapsed) == rShape) {
-        found = true;
-        break;
-      }
-    }
-    if (!found)
-      return emitOpError("result #")
-             << i << " shape does not match partial #" << i
-             << " with a single unit within-group tile axis collapsed";
-  }
+  // The result shape check (each result T_r_i is T_p_i with one unit axis
+  // collapsed) is expressed declaratively via RangedTypesMatchWith in the op
+  // definition (see KtdpOps.td), which calls TileFutureType::getReducedPartialTypes().
 
   // Local structural checks on the consumer set attribute.
   IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
