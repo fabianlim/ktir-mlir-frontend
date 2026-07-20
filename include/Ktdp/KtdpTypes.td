@@ -224,7 +224,7 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
     Syntax:
 
     ```
-    tile_future-type ::= `tile_future` `<` type (`,` type)* `,` `groups` `=` integer-set `>`
+    tile_future-type ::= `tile_future` `<` `(` type (`,` type)* `)` `,` `groups` `=` integer-set `>`
     ```
 
     The `tile_future` type is the SSA handle returned by
@@ -238,6 +238,10 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
     N >= 1 roles are supported; N >= 2 expresses correlated tuples such as the
     (values, indices) pair of an argmax-style reduction.
 
+    The partial types are wrapped in parentheses `(...)` to make the syntax
+    look-ahead-free: the parser can unambiguously detect the end of the type
+    list without peeking past commas for the `groups` keyword.
+
     The `groups` integer set is a 1D set over a single dimension `g` with no
     symbols; it defines the range of valid group indices.
 
@@ -245,10 +249,10 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
 
     ```mlir
     // Single partial role.
-    !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g == 0)>>
+    !ktdp.tile_future<(tensor<1x64xf16>), groups = affine_set<(g) : (g == 0)>>
 
     // Two correlated roles (argmax-style: values, indices).
-    !ktdp.tile_future<tensor<128xf32>, tensor<128xi32>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
+    !ktdp.tile_future<(tensor<128xf32>, tensor<128xi32>), groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
     ```
   }];
 

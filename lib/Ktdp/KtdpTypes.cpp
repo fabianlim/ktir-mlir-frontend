@@ -179,9 +179,9 @@ LogicalResult TileFutureType::verify(
 }
 
 void TileFutureType::print(AsmPrinter &printer) const {
-  printer << "<";
+  printer << "<(";
   llvm::interleaveComma(getPartialTypes(), printer);
-  printer << ", groups = ";
+  printer << "), groups = ";
   printer.printAttribute(IntegerSetAttr::get(getGroups()));
   printer << ">";
 }
@@ -189,38 +189,27 @@ void TileFutureType::print(AsmPrinter &printer) const {
 Type TileFutureType::parse(AsmParser &parser) {
   if (parser.parseLess()) return Type();
 
+  // Parse the parenthesised partial-type list: `(T_p_1, ..., T_p_N)`.
   SmallVector<Type, 2> partialTypes;
-  // Parse the first type (required)
-  {
-    Type t;
-    if (parser.parseType(t)) return Type();
-    partialTypes.push_back(t);
-  }
-
-  IntegerSet groups;
-  while (succeeded(parser.parseOptionalComma())) {
-    // Peek: is this `groups = <set>`?
-    if (succeeded(parser.parseOptionalKeyword("groups"))) {
-      IntegerSetAttr groupsAttr;
-      if (parser.parseEqual() || parser.parseAttribute(groupsAttr))
-        return Type();
-      groups = groupsAttr.getValue();
-      break;
-    }
-    Type t;
-    if (parser.parseType(t)) return Type();
-    partialTypes.push_back(t);
-  }
-
-  if (groups == IntegerSet()) {
-    parser.emitError(parser.getCurrentLocation(),
-                     "expected `groups = <integer-set>` in tile_future type");
+  if (parser.parseLParen()) return Type();
+  if (parser.parseCommaSeparatedList([&]() -> ParseResult {
+        Type t;
+        if (parser.parseType(t)) return failure();
+        partialTypes.push_back(t);
+        return success();
+      }))
     return Type();
-  }
+  if (parser.parseRParen()) return Type();
+
+  // Parse `, groups = <integer-set>`.
+  IntegerSetAttr groupsAttr;
+  if (parser.parseComma() || parser.parseKeyword("groups") ||
+      parser.parseEqual() || parser.parseAttribute(groupsAttr))
+    return Type();
 
   if (parser.parseGreater()) return Type();
 
   return TileFutureType::getChecked(
       [&] { return parser.emitError(parser.getCurrentLocation()); },
-      partialTypes, groups);
+      partialTypes, groupsAttr.getValue());
 }
