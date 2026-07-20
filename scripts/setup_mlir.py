@@ -15,9 +15,15 @@ Resolution order:
     1. --wheel flag       → install mlir_wheel, print its MLIR_DIR
     2. --hash / cmake/llvm-hash.txt → resolve artifact
        a. Cache hit       → print cached MLIR_DIR (no network)
-       b. GitHub download → download artifact, cache, print MLIR_DIR
-       c. Fallback        → install mlir_wheel, print its MLIR_DIR
+       b. Release asset   → download from GitHub Releases (no token), cache, print
+       c. Actions artifact → download via Actions API (needs token), cache, print
+       d. None of the above resolves → exit with an error pointing at --wheel
+          (the wheel fallback is manual: re-run with --wheel, never automatic)
     3. No hash file       → fall back to mlir_wheel
+
+The release-asset path (2b) is the primary network source: on a public repo the
+asset downloads with no auth and never expires. The Actions-artifact path (2c)
+is a token-gated fallback retained during migration (issue #24).
 """
 
 import argparse
@@ -156,6 +162,85 @@ def query_artifact_id(token: str, repo: str, artifact_name: str) -> int | None:
     return None
 
 
+def _stream_download(resp, dest: pathlib.Path) -> None:
+    """Stream an open HTTP response body to *dest*, printing progress to stderr."""
+    total_size = int(resp.headers.get('content-length', 0))
+    downloaded = 0
+    chunk_size = 1024 * 1024
+    with open(dest, 'wb') as f:
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+            if total_size > 0:
+                pct = 100 * downloaded / total_size
+                mb = downloaded / (1024 * 1024)
+                _err(f"\rDownload progress: {pct:.1f}% ({mb:.1f}MB)", end="")
+    _err()
+
+
+def _extract_tar_to_cache(tar_path: pathlib.Path, artifact_name: str) -> str:
+    """Unpack a build tarball into the cache and return its MLIR_DIR."""
+    _err(f"Extracting {tar_path.name} to {_CACHE_BASE}/")
+    with tarfile.open(tar_path) as tf:
+        tf.extractall(_CACHE_BASE, filter="data")
+
+    mlir_dir = _CACHE_BASE / artifact_name / "lib" / "cmake" / "mlir"
+    if not mlir_dir.is_dir():
+        raise RuntimeError(
+            f"Expected MLIR_DIR not found after extraction: {mlir_dir}"
+        )
+    return str(mlir_dir)
+
+
+def build_release_url(repo: str, short_hash: str, artifact_name: str) -> str:
+    """Public release-asset download URL (no auth needed on a public repo).
+
+    The release tag is llvm-<short-hash>; the asset is the per-platform tarball
+    llvm-<short>-<os>-<arch>.tar.gz. The tag is built from the known short_hash
+    rather than re-parsed out of artifact_name.
+    """
+    return (
+        f"https://github.com/{repo}/releases/download/"
+        f"llvm-{short_hash}/{artifact_name}.tar.gz"
+    )
+
+
+def download_release_and_cache(repo: str, short_hash: str, artifact_name: str) -> str:
+    """Download the release-asset tarball (no token), unpack to cache, return MLIR_DIR."""
+    _CACHE_BASE.mkdir(parents=True, exist_ok=True)
+    url = build_release_url(repo, short_hash, artifact_name)
+    _err(f"Downloading {artifact_name} from GitHub Releases...")
+    _err(f"URL: {url}")
+
+    with tempfile.TemporaryDirectory() as _tmp:
+        tar_path = pathlib.Path(_tmp) / f"{artifact_name}.tar.gz"
+        opener = urllib.request.build_opener(_PreservingHTTPRedirectHandler)
+        with opener.open(urllib.request.Request(url)) as resp:
+            _stream_download(resp, tar_path)
+        return _extract_tar_to_cache(tar_path, artifact_name)
+
+
+def release_asset_available(repo: str, short_hash: str, artifact_name: str) -> bool:
+    """True if the public release asset exists (HEAD request, no token)."""
+    url = build_release_url(repo, short_hash, artifact_name)
+    req = urllib.request.Request(url, method="HEAD")
+    opener = urllib.request.build_opener(_PreservingHTTPRedirectHandler)
+    try:
+        with opener.open(req):
+            return True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        _err(f"Release HEAD check error: {exc.code} {exc.reason}")
+        return False
+    except urllib.error.URLError as exc:
+        _err(f"Release HEAD check failed: {exc}")
+        return False
+
+
 def download_and_cache(
     token: str, repo: str, artifact_id: int, artifact_name: str
 ) -> str:
@@ -175,20 +260,7 @@ def download_and_cache(
         req = _make_request(zip_url, token)
         opener = urllib.request.build_opener(_PreservingHTTPRedirectHandler)
         with opener.open(req) as resp:
-            total_size = int(resp.headers.get('content-length', 0))
-            downloaded = 0
-            chunk_size = 1024 * 1024
-            with open(zip_path, 'wb') as f:
-                while True:
-                    chunk = resp.read(chunk_size)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        pct = 100 * downloaded / total_size
-                        mb = downloaded / (1024 * 1024)
-                        _err(f"\rDownload progress: {pct:.1f}% ({mb:.1f}MB)", end="")
+            _stream_download(resp, zip_path)
 
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(tmp)
@@ -196,19 +268,8 @@ def download_and_cache(
         tar_files = list(tmp.glob("*.tar.gz"))
         if not tar_files:
             raise RuntimeError("No .tar.gz found inside artifact zip")
-        tar_path = tar_files[0]
 
-        _err()
-        _err(f"Extracting {tar_path.name} to {_CACHE_BASE}/")
-        with tarfile.open(tar_path) as tf:
-            tf.extractall(_CACHE_BASE, filter="data")
-
-    mlir_dir = _CACHE_BASE / artifact_name / "lib" / "cmake" / "mlir"
-    if not mlir_dir.is_dir():
-        raise RuntimeError(
-            f"Expected MLIR_DIR not found after extraction: {mlir_dir}"
-        )
-    return str(mlir_dir)
+        return _extract_tar_to_cache(tar_files[0], artifact_name)
 
 
 # ---------------------------------------------------------------------------
@@ -316,15 +377,8 @@ def main():
         print(cached)
         return
 
-    # ── Path 4: download from GitHub ────────────────────────────────────────
-    token = os.environ.get("GIT_PAT") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        sys.exit(
-            f"Error: artifact '{artifact_name}' is not cached locally and no token is available.\n"
-            "  Set GIT_PAT or GITHUB_TOKEN to download it from GitHub Actions.\n"
-            "  To use mlir_wheel instead, pass --wheel."
-        )
-
+    # The repo holding the artifact — needed for both the release and the
+    # Actions-artifact path.  Failure here is fatal only once we need the network.
     try:
         repo = resolve_repo(args.repo)
     except RuntimeError as exc:
@@ -332,6 +386,33 @@ def main():
             f"Error: artifact '{artifact_name}' is not cached locally and the GitHub repo\n"
             f"  could not be determined: {exc}\n"
             "  Pass --repo <owner/repo> explicitly, or use --wheel to fall back to mlir_wheel."
+        )
+
+    # ── Path 4: download from GitHub Releases (no token) ────────────────────
+    # Primary network source: public release assets need no auth and never
+    # expire.  Falls through to the Actions-artifact path if the release is
+    # absent (e.g. a hash built before releases were adopted).
+    _err(f"Checking GitHub Releases for {artifact_name} in {repo}...")
+    if release_asset_available(repo, short_hash, artifact_name):
+        if args.dry_run:
+            _err(f"✓ Dry run: release asset '{artifact_name}' available in {repo}")
+            return
+        try:
+            mlir_dir = download_release_and_cache(repo, short_hash, artifact_name)
+            _err("✓ MLIR_DIR resolved. Next: CMAKE_ARGS=\"-DMLIR_DIR=$MLIR_DIR\" uv sync -v  # builds and installs ktir against MLIR")
+            print(mlir_dir)
+            return
+        except Exception as exc:
+            _err(f"Release download failed ({exc}); falling back to Actions artifact.")
+
+    # ── Path 5: download from Actions artifacts (token-gated fallback) ──────
+    token = os.environ.get("GIT_PAT") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        sys.exit(
+            f"Error: artifact '{artifact_name}' is not cached locally, no release asset\n"
+            f"  was found in {repo}, and no token is available for the Actions-artifact fallback.\n"
+            "  Set GIT_PAT or GITHUB_TOKEN to download it from GitHub Actions,\n"
+            "  or use --wheel to fall back to mlir_wheel."
         )
 
     _err(f"Querying artifact {artifact_name} in {repo}...")
