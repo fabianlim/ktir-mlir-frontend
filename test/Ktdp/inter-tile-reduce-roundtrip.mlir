@@ -11,7 +11,7 @@
 
 // CHECK-LABEL:   func.func @reduce_single_role(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf16>, %[[VAL_1:.*]]: tensor<1x64xf16>) -> tensor<64xf16> {
-// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_0]] -> <(tensor<1x64xf16>), groups = #[[$ATTR_1]]> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_0]] -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #[[$ATTR_1]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<1x64xf16>
 // CHECK-NEXT:     }
@@ -25,7 +25,7 @@
 
 // CHECK-LABEL:   func.func @reduce_to_one(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf16>, %[[VAL_1:.*]]: tensor<1x64xf16>) -> tensor<64xf16> {
-// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> <(tensor<1x64xf16>), groups = #[[$ATTR_1]]> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #[[$ATTR_1]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<1x64xf16>
 // CHECK-NEXT:     }
@@ -39,7 +39,7 @@
 
 // CHECK-LABEL:   func.func @reduce_multi_group(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<128x1x1x64xf16>, %[[VAL_1:.*]]: tensor<128x1x1x64xf16>) -> tensor<128x1x64xf16> {
-// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> <(tensor<128x1x1x64xf16>), groups = #[[$ATTR_4]]> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #[[$ATTR_4]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<128x1x1x64xf16>
 // CHECK-NEXT:     }
@@ -53,11 +53,11 @@
 
 // CHECK-LABEL:   func.func @reduce_argmax(
 // CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf32>, %[[VAL_1:.*]]: tensor<1x64xi32>, %[[VAL_2:.*]]: tensor<1x64xf32>, %[[VAL_3:.*]]: tensor<1x64xi32>) -> (tensor<64xf32>, tensor<64xi32>) {
-// CHECK-NEXT:     %[[VAL_4:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> <(tensor<1x64xf32>, tensor<1x64xi32>), groups = #[[$ATTR_4]]> {
+// CHECK-NEXT:     %[[VAL_4:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_2]] -> !ktdp.tile_future<(tensor<1x64xf32>, tensor<1x64xi32>), groups = #[[$ATTR_4]]> {
 // CHECK-NEXT:     ^bb0(%[[VAL_5:.*]]: index):
 // CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]], %[[VAL_1]] : tensor<1x64xf32>, tensor<1x64xi32>
 // CHECK-NEXT:     }
-// CHECK-NEXT:     %[[VAL_6:.*]]:2 = ktdp.inter_tile_reduce(%[[VAL_4]]) consumer_tiles_per_group = #[[$ATTR_2]], producer_dependency_per_consumer = #[[$ATTR_5]], identity(%[[VAL_2]] : tensor<1x64xf32>, %[[VAL_3]] : tensor<1x64xi32>) : !ktdp.tile_future<(tensor<1x64xf32>, tensor<1x64xi32>), groups = #[[$ATTR_4]]> -> tensor<64xf32>, tensor<64xi32> {
+// CHECK-NEXT:     %[[VAL_6:.*]]:2 = ktdp.inter_tile_reduce(%[[VAL_4]]) consumer_tiles_per_group = #[[$ATTR_2]], producer_dependency_per_consumer = #[[$ATTR_5]], identity(%[[VAL_2]], %[[VAL_3]] : tensor<1x64xf32>, tensor<1x64xi32>) : !ktdp.tile_future<(tensor<1x64xf32>, tensor<1x64xi32>), groups = #[[$ATTR_4]]> -> tensor<64xf32>, tensor<64xi32> {
 // CHECK-NEXT:     ^bb0(%[[VAL_7:.*]]: tensor<1x64xf32>, %[[VAL_8:.*]]: tensor<1x64xi32>, %[[VAL_9:.*]]: tensor<1x64xf32>, %[[VAL_10:.*]]: tensor<1x64xi32>):
 // CHECK-NEXT:       %[[VAL_11:.*]] = arith.cmpf ogt, %[[VAL_7]], %[[VAL_9]] : tensor<1x64xf32>
 // CHECK-NEXT:       %[[VAL_12:.*]] = arith.maxnumf %[[VAL_7]], %[[VAL_9]] : tensor<1x64xf32>
@@ -185,7 +185,7 @@ func.func @reduce_argmax(%pv: tensor<1x64xf32>, %pi: tensor<1x64xi32>,
   %rv, %ri = ktdp.inter_tile_reduce(%f)
       consumer_tiles_per_group = #bf_tiles,
       producer_dependency_per_consumer = #bf_dep,
-      identity(%iv : tensor<1x64xf32>, %ii : tensor<1x64xi32>)
+      identity(%iv, %ii : tensor<1x64xf32>, tensor<1x64xi32>)
       : !ktdp.tile_future<(tensor<1x64xf32>, tensor<1x64xi32>), groups = #bf_groups>
         -> tensor<64xf32>, tensor<64xi32>
   {

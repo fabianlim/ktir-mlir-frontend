@@ -113,6 +113,7 @@ def KTDP_YieldReducedOp : Ktdp_Op<"yield_reduced",
   }];
   let arguments = (ins Variadic<AnyRankedTensor>:$values);
   let assemblyFormat = "($values^ `:` type($values))? attr-dict";
+  let builders = [OpBuilder<(ins), [{ $_state.addOperands(ValueRange{}); }]>];
 }
 
 def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
@@ -228,7 +229,12 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region SizedRegion<1>:$combiner);
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    `(` $future `)` `consumer_tiles_per_group` `=` $consumer_tiles_per_group `,`
+    (`producer_dependency_per_consumer` `=` $producer_dependency_per_consumer^ `,`)?
+    `identity` `(` ($identity^ `:` type($identity))? `)`
+    attr-dict `:` type($future) `->` type($results) $combiner
+  }];
   let hasRegionVerifier = 1;
 
   let extraClassDeclaration = [{
