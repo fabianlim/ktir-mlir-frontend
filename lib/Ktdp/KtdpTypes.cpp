@@ -3,6 +3,7 @@
 // Implements:
 //   AccessTileType::parse / ::print / ::verify
 //   RuntimeArgType::parse / ::print / ::verify
+//   TileFutureType::verify / ::getReducedPartialTypes
 //
 //===----------------------------------------------------------------------===//
 
@@ -159,13 +160,14 @@ Type RuntimeArgType::parse(AsmParser &parser) {
 
 LogicalResult TileFutureType::verify(
     function_ref<InFlightDiagnostic()> emitError,
-    ArrayRef<RankedTensorType> partialTypes, IntegerSet groups) {
+    ArrayRef<RankedTensorType> partialTypes, IntegerSetAttr groups) {
   if (partialTypes.empty())
     return emitError() << "tile_future must carry at least one partial type";
 
-  if (groups.getNumDims() != 1)
+  IntegerSet set = groups.getValue();
+  if (set.getNumDims() != 1)
     return emitError() << "tile_future `groups` must have exactly one dimension (g)";
-  if (groups.getNumSymbols() != 0)
+  if (set.getNumSymbols() != 0)
     return emitError() << "tile_future `groups` must have no symbols";
 
   return success();
@@ -193,44 +195,3 @@ SmallVector<Type> TileFutureType::getReducedPartialTypes() const {
   return result;
 }
 
-void TileFutureType::print(AsmPrinter &printer) const {
-  printer << "<(";
-  llvm::interleaveComma(getPartialTypes(), printer);
-  printer << "), groups = ";
-  printer.printAttribute(IntegerSetAttr::get(getGroups()));
-  printer << ">";
-}
-
-Type TileFutureType::parse(AsmParser &parser) {
-  if (parser.parseLess()) return Type();
-
-  // Parse the parenthesised partial-type list: `(T_p_1, ..., T_p_N)`.
-  SmallVector<RankedTensorType, 2> partialTypes;
-  if (parser.parseLParen()) return Type();
-  if (parser.parseCommaSeparatedList([&]() -> ParseResult {
-        Type t;
-        if (parser.parseType(t)) return failure();
-        auto ranked = mlir::dyn_cast<RankedTensorType>(t);
-        if (!ranked)
-          return parser.emitError(parser.getCurrentLocation(),
-                                  "tile_future partial type must be a ranked "
-                                  "tensor, but got: ")
-                 << t;
-        partialTypes.push_back(ranked);
-        return success();
-      }))
-    return Type();
-  if (parser.parseRParen()) return Type();
-
-  // Parse `, groups = <integer-set>`.
-  IntegerSetAttr groupsAttr;
-  if (parser.parseComma() || parser.parseKeyword("groups") ||
-      parser.parseEqual() || parser.parseAttribute(groupsAttr))
-    return Type();
-
-  if (parser.parseGreater()) return Type();
-
-  return TileFutureType::getChecked(
-      [&] { return parser.emitError(parser.getCurrentLocation()); },
-      partialTypes, groupsAttr.getValue());
-}
