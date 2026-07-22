@@ -213,53 +213,13 @@ def Ktdp_RuntimeArgType : KTDP_Type<"RuntimeArg", "runtime_arg"> {
   let genVerifyDecl = 1;
 }
 
-// Type parameter for IntegerSetAttr — prints/parses as `affine_set<...>`.
-def IntegerSetAttrParam : AttrOrTypeParameter<"::mlir::IntegerSetAttr", ""> {
-  let printer = [{ $_printer.printAttribute($_self); }];
-  let parser = [{ [&]() -> ::mlir::FailureOr<::mlir::IntegerSetAttr> {
-    ::mlir::IntegerSetAttr attr;
-    if ($_parser.parseAttribute(attr))
-      return ::mlir::failure();
-    return attr;
-  }() }];
-}
-
-// Custom ArrayRef parameter that prints/parses ranked-tensor type lists as
-// `(T1, T2, ...)`, keeping the look-ahead-free parenthesised syntax.
-def PartialTypesParam : ArrayRefParameter<"::mlir::RankedTensorType"> {
-  let printer = [{
-    $_printer << '(';
-    llvm::interleaveComma($_self, $_printer, [&](::mlir::RankedTensorType t) {
-      $_printer.printType(t);
-    });
-    $_printer << ')';
-  }];
-  let parser = [{[&]() -> ::mlir::FailureOr<::llvm::SmallVector<::mlir::RankedTensorType>> {
-    ::llvm::SmallVector<::mlir::RankedTensorType> types;
-    if ($_parser.parseLParen()) return ::mlir::failure();
-    if ($_parser.parseCommaSeparatedList([&]() -> ::mlir::ParseResult {
-      ::mlir::Type t;
-      if ($_parser.parseType(t)) return ::mlir::failure();
-      auto rt = ::mlir::dyn_cast<::mlir::RankedTensorType>(t);
-      if (!rt)
-        return $_parser.emitError(
-            $_parser.getCurrentLocation(),
-            "tile_future partial type must be a ranked tensor, but got: ") << t;
-      types.push_back(rt);
-      return ::mlir::success();
-    })) return ::mlir::failure();
-    if ($_parser.parseRParen()) return ::mlir::failure();
-    return types;
-  }()}];
-}
-
 //===----------------------------------------------------------------------===//
 // TileFutureType
 //===----------------------------------------------------------------------===//
 
 def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
   let summary = "Workgroup-visible handle to in-flight per-tile partial contributions";
-  let assemblyFormat = "`<` $partialTypes `,` `groups` `=` $groups `>`";
+  let assemblyFormat = "`<` `(` $partialTypes `)` `,` `groups` `=` $groups `>`";
   let description = [{
     Syntax:
 
@@ -297,8 +257,8 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
   }];
 
   let parameters = (ins
-    PartialTypesParam:$partialTypes,
-    IntegerSetAttrParam:$groups
+    ArrayRefParameter<"RankedTensorType">:$partialTypes,
+    "IntegerSetAttr":$groups
   );
 
   let builders = [

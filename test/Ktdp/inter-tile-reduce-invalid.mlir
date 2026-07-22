@@ -80,7 +80,7 @@ func.func @bad_collapse_nonunit(%p: tensor<96x64xf16>, %id: tensor<96x64xf16>) -
 
 // -----
 // tile_future partial types must be ranked tensors.
-// expected-error @below {{tile_future partial type must be a ranked tensor, but got: 'index'}}
+// expected-error @below {{invalid kind of type specified: expected builtin.tensor, but found 'index'}}
 // expected-error @below {{failed to parse Ktdp_TileFutureType parameter 'partialTypes'}}
 func.func @bad_future_scalar(%a: !ktdp.tile_future<(index), groups = affine_set<(g) : (g == 0)>>) { return }
 
