@@ -19,8 +19,7 @@ The `ktdp` dialect models tile-based, data-parallel kernels targeting multi-core
 - **Tile identity**: `get_compute_tile_id`
 - **Runtime args**: `runtime_arg` type + `runtime_arg_extract` op
 - **Inter-tile communication**: `inter_tile_produce` + `inter_tile_reduce`
-  (all-reduce; `yield_partial` / `yield_reduced` terminators). See
-  [docs/inter-tile-communication.md](docs/inter-tile-communication.md). Broadcast
+  (all-reduce; `yield_partial` / `yield_reduced` terminators). Broadcast
   (`inter_tile_consume`), reduce-scatter, per-tile sync, gather, and scatter are
   future work.
 
