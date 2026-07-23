@@ -1318,33 +1318,11 @@ std::optional<llvm::DenseSet<int64_t>> depTilesOf(IntegerSet depSet,
 
 // Syntax:
 
-LogicalResult InterTileProduceOp::verifyRegions() {
-  TileFutureType futureType = getFuture().getType();
-  ArrayRef<RankedTensorType> partials = futureType.getPartialTypes();
-
+LogicalResult InterTileProduceOp::verify() {
   // Single-use invariant (§2.3): exactly one delivery op consumes the future.
   if (!getFuture().hasOneUse() && !getFuture().use_empty())
     return emitOpError("future result must have exactly one use (the single "
                        "delivery op that consumes it)");
-
-  // Producer region: one block, single `index` group-id argument.
-  Block& block = getBody().front();
-  if (block.getNumArguments() != 1 ||
-      !block.getArgument(0).getType().isIndex())
-    return emitOpError(
-        "producer region must take a single `index` group-id argument");
-
-  // Terminator yields one value per partial role, matching the future types.
-  auto yield = cast<YieldPartialOp>(block.getTerminator());
-  if (yield.getValues().size() != partials.size())
-    return emitOpError("yield_partial yields ")
-           << yield.getValues().size() << " values but the future carries "
-           << partials.size() << " partial type(s)";
-  for (auto [i, val] : llvm::enumerate(yield.getValues()))
-    if (val.getType() != partials[i])
-      return emitOpError("yield_partial operand #")
-             << i << " type " << val.getType()
-             << " does not match future partial type " << partials[i];
 
   // The producer set's symbol must be the group index `g`; groups set has none.
   IntegerSet groupsSet = getGroups();
@@ -1382,11 +1360,37 @@ LogicalResult InterTileProduceOp::verifyRegions() {
   return success();
 }
 
+LogicalResult InterTileProduceOp::verifyRegions() {
+  TileFutureType futureType = getFuture().getType();
+  ArrayRef<RankedTensorType> partials = futureType.getPartialTypes();
+
+  // Producer region: one block, single `index` group-id argument.
+  Block& block = getBody().front();
+  if (block.getNumArguments() != 1 ||
+      !block.getArgument(0).getType().isIndex())
+    return emitOpError(
+        "producer region must take a single `index` group-id argument");
+
+  // Terminator yields one value per partial role, matching the future types.
+  auto yield = cast<YieldPartialOp>(block.getTerminator());
+  if (yield.getValues().size() != partials.size())
+    return emitOpError("yield_partial yields ")
+           << yield.getValues().size() << " values but the future carries "
+           << partials.size() << " partial type(s)";
+  for (auto [i, val] : llvm::enumerate(yield.getValues()))
+    if (val.getType() != partials[i])
+      return emitOpError("yield_partial operand #")
+             << i << " type " << val.getType()
+             << " does not match future partial type " << partials[i];
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // InterTileReduceOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult InterTileReduceOp::verifyRegions() {
+LogicalResult InterTileReduceOp::verify() {
   ArrayRef<RankedTensorType> partials = getPartialTypes();
   size_t n = partials.size();
 
@@ -1399,6 +1403,27 @@ LogicalResult InterTileReduceOp::verifyRegions() {
       return emitOpError("identity #")
              << i << " type " << id.getType()
              << " must match future partial type " << partials[i];
+
+  // Result types must match the partial types exactly.
+  if (getResults().size() != n)
+    return emitOpError("expected ") << n << " result(s), got " << getResults().size();
+  for (auto [i, res] : llvm::enumerate(getResults()))
+    if (res.getType() != partials[i])
+      return emitOpError("result #") << i << " type " << res.getType()
+             << " must match future partial type " << partials[i];
+
+  // Local structural checks on the consumer set attribute.
+  IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
+  if (consumerSet.getNumSymbols() != 1)
+    return emitOpError("`consumer_tiles_per_group` must have exactly one "
+                       "symbol (the group index g)");
+
+  return success();
+}
+
+LogicalResult InterTileReduceOp::verifyRegions() {
+  ArrayRef<RankedTensorType> partials = getPartialTypes();
+  size_t n = partials.size();
 
   // Reducer region: 2N args (lhs_1..lhs_N, rhs_1..rhs_N) each of type T_p_i.
   Block& block = getCombiner().front();
@@ -1422,12 +1447,6 @@ LogicalResult InterTileReduceOp::verifyRegions() {
       return emitOpError("yield_reduced operand #")
              << i << " type " << val.getType()
              << " must match partial type " << partials[i];
-
-  // Local structural checks on the consumer set attribute.
-  IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
-  if (consumerSet.getNumSymbols() != 1)
-    return emitOpError("`consumer_tiles_per_group` must have exactly one "
-                       "symbol (the group index g)");
 
   // TODO: move producer/consumer set relationship checks to a dedicated pass.
   // The checks that compare consumer_tiles_per_group against

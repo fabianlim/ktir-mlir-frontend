@@ -159,6 +159,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
   let assemblyFormat =
       "`producer_tiles_per_group` `=` $producer_tiles_per_group attr-dict"
       " `->` type($future) $body";
+  let hasVerifier = 1;
   let hasRegionVerifier = 1;
 
   let extraClassDeclaration = [{
@@ -231,6 +232,7 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     `identity` `(` ($identity^ `:` type($identity))? `)`
     attr-dict `:` type($future) `->` type($results) $combiner
   }];
+  let hasVerifier = 1;
   let hasRegionVerifier = 1;
 
   let extraClassDeclaration = [{
