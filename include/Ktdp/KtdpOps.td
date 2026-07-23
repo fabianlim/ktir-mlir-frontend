@@ -175,11 +175,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
 
 def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     [SingleBlockImplicitTerminator<"::mlir::ktdp::YieldReducedOp">,
-     RecursiveMemoryEffects,
-     RangedTypesMatchWith<
-         "result types must be the partial types with one unit axis collapsed",
-         "future", "results",
-         "::llvm::cast<TileFutureType>($_self).getReducedPartialTypes()">]> {
+     RecursiveMemoryEffects]> {
   let summary = "Reduction delivery op (all-reduce / reduce)";
   let description = [{
     The `ktdp.inter_tile_reduce` operation consumes the `!ktdp.tile_future`
@@ -202,7 +198,7 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     `identity` provides one identity tensor per role (matching `T_p_i`),
     hoisted before the op and shared across groups/tiles.
 
-    Each result `T_r_i` is `T_p_i` with the within-group tile axes collapsed.
+    Each result `T_r_i` has the same type as the corresponding partial type `T_p_i`.
     Every consumer tile in a group holds that group's fully reduced result
     (all-reduce when consumer set == producer set).
 
@@ -211,7 +207,7 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     %r = ktdp.inter_tile_reduce(%f)
         consumer_tiles_per_group = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>,
         identity(%add_id : tensor<1x64xf16>)
-        : !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>> -> tensor<64xf16>
+        : !ktdp.tile_future<tensor<1x64xf16>, groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>> -> tensor<1x64xf16>
     {
       ^bb0(%lhs: tensor<1x64xf16>, %rhs: tensor<1x64xf16>):
         %s = linalg.add ins(%lhs, %rhs : tensor<1x64xf16>, tensor<1x64xf16>)

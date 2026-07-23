@@ -69,6 +69,20 @@
 
 
 
+// CHECK-LABEL:   func.func @reduce_same_rank(
+// CHECK-SAME:  %[[VAL_0:.*]]: tensor<1x64xf16>, %[[VAL_1:.*]]: tensor<1x64xf16>) -> tensor<1x64xf16> {
+// CHECK-NEXT:     %[[VAL_2:.*]] = ktdp.inter_tile_produce producer_tiles_per_group = #[[$ATTR_0]] -> <(tensor<1x64xf16>), groups = #[[$ATTR_1]]> {
+// CHECK-NEXT:     ^bb0(%[[VAL_3:.*]]: index):
+// CHECK-NEXT:       ktdp.yield_partial %[[VAL_0]] : tensor<1x64xf16>
+// CHECK-NEXT:     }
+// CHECK-NEXT:     %[[VAL_4:.*]] = ktdp.inter_tile_reduce(%[[VAL_2]]) consumer_tiles_per_group = #[[$ATTR_0]], identity(%[[VAL_1]] : tensor<1x64xf16>) : <(tensor<1x64xf16>), groups = #[[$ATTR_1]]> -> tensor<1x64xf16> {
+// CHECK-NEXT:     ^bb0(%[[VAL_5:.*]]: tensor<1x64xf16>, %[[VAL_6:.*]]: tensor<1x64xf16>):
+// CHECK-NEXT:       %[[VAL_7:.*]] = linalg.add ins(%[[VAL_5]], %[[VAL_6]] : tensor<1x64xf16>, tensor<1x64xf16>) outs(%[[VAL_5]] : tensor<1x64xf16>) -> tensor<1x64xf16>
+// CHECK-NEXT:       ktdp.yield_reduced %[[VAL_7]] : tensor<1x64xf16>
+// CHECK-NEXT:     }
+// CHECK-NEXT:     return %[[VAL_4]] : tensor<1x64xf16>
+// CHECK-NEXT:   }
+
 
 
 
@@ -198,4 +212,30 @@ func.func @reduce_argmax(%pv: tensor<1x64xf32>, %pi: tensor<1x64xi32>,
       ktdp.yield_reduced %max_v, %max_i : tensor<1x64xf32>, tensor<1x64xi32>
   }
   return %rv, %ri : tensor<64xf32>, tensor<64xi32>
+}
+
+// -----
+// Same-rank result: result type equals the partial type (no rank reduction).
+// -----
+
+func.func @reduce_same_rank(%partial: tensor<1x64xf16>,
+                             %add_id: tensor<1x64xf16>) -> tensor<1x64xf16> {
+  %f = ktdp.inter_tile_produce
+      producer_tiles_per_group = #group_tiles
+      -> <(tensor<1x64xf16>), groups = #all_groups>
+  {
+    ^bb0(%gid: index):
+      ktdp.yield_partial %partial : tensor<1x64xf16>
+  }
+  %r = ktdp.inter_tile_reduce(%f)
+      consumer_tiles_per_group = #group_tiles,
+      identity(%add_id : tensor<1x64xf16>)
+      : <(tensor<1x64xf16>), groups = #all_groups> -> tensor<1x64xf16>
+  {
+    ^bb0(%lhs: tensor<1x64xf16>, %rhs: tensor<1x64xf16>):
+      %s = linalg.add ins(%lhs, %rhs : tensor<1x64xf16>, tensor<1x64xf16>)
+                      outs(%lhs : tensor<1x64xf16>) -> tensor<1x64xf16>
+      ktdp.yield_reduced %s : tensor<1x64xf16>
+  }
+  return %r : tensor<1x64xf16>
 }

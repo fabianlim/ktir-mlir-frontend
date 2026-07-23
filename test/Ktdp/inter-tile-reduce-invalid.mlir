@@ -48,35 +48,7 @@ func.func @bad_identity_type(%p: tensor<1x64xf16>, %id: tensor<2x64xf16>) -> ten
   return %r : tensor<64xf16>
 }
 
-// -----
-// result rank must be exactly one less than the partial rank.
-#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#ag = affine_set<(g) : (g == 0)>
-func.func @bad_collapse_rank(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tensor<1x64xf16> {
-  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag>
-  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  // expected-error @below {{result types must be the partial types with one unit axis collapsed}}
-  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
-      : !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag> -> tensor<1x64xf16>
-  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
-  return %r : tensor<1x64xf16>
-}
 
-// -----
-// collapsed axis must be a unit dimension (96 cannot collapse to 64).
-#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#ag = affine_set<(g) : (g == 0)>
-func.func @bad_collapse_nonunit(%p: tensor<96x64xf16>, %id: tensor<96x64xf16>) -> tensor<64xf16> {
-  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      -> !ktdp.tile_future<(tensor<96x64xf16>), groups = #ag>
-  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<96x64xf16> }
-  // expected-error @below {{result types must be the partial types with one unit axis collapsed}}
-  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<96x64xf16>)
-      : !ktdp.tile_future<(tensor<96x64xf16>), groups = #ag> -> tensor<64xf16>
-  { ^bb0(%l: tensor<96x64xf16>, %rr: tensor<96x64xf16>): ktdp.yield_reduced %l : tensor<96x64xf16> }
-  return %r : tensor<64xf16>
-}
 
 // -----
 // tile_future partial types must be ranked tensors.

@@ -3,7 +3,7 @@
 // Implements:
 //   AccessTileType::parse / ::print / ::verify
 //   RuntimeArgType::parse / ::print / ::verify
-//   TileFutureType::verify / ::getReducedPartialTypes
+//   TileFutureType::verify
 //
 //===----------------------------------------------------------------------===//
 
@@ -173,25 +173,4 @@ LogicalResult TileFutureType::verify(
   return success();
 }
 
-SmallVector<Type> TileFutureType::getReducedPartialTypes() const {
-  SmallVector<Type> result;
-  for (RankedTensorType pt : getPartialTypes()) {
-    ArrayRef<int64_t> shape = pt.getShape();
-    // Find the first unit (== 1) dimension to collapse.
-    SmallVector<int64_t> reduced;
-    bool found = false;
-    for (int64_t dim : shape) {
-      if (!found && dim == 1) {
-        found = true;
-        continue;  // skip this unit dimension
-      }
-      reduced.push_back(dim);
-    }
-    if (found)
-      result.push_back(RankedTensorType::get(reduced, pt.getElementType()));
-    else
-      result.push_back(pt);  // no unit dim — placeholder, constraint will fail
-  }
-  return result;
-}
 

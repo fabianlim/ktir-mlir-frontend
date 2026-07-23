@@ -1423,10 +1423,6 @@ LogicalResult InterTileReduceOp::verifyRegions() {
              << i << " type " << val.getType()
              << " must match partial type " << partials[i];
 
-  // The result shape check (each result T_r_i is T_p_i with one unit axis
-  // collapsed) is expressed declaratively via RangedTypesMatchWith in the op
-  // definition (see KtdpOps.td), which calls TileFutureType::getReducedPartialTypes().
-
   // Local structural checks on the consumer set attribute.
   IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
   if (consumerSet.getNumSymbols() != 1)
