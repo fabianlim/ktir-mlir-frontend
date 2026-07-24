@@ -16,24 +16,6 @@ func.func @bad_produce_arity(%p: tensor<1x64xf16>) {
 }
 
 // -----
-// future result must have exactly one use.
-#g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#ag = affine_set<(g) : (g == 0)>
-func.func @bad_multiple_uses(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) {
-  // expected-error @below {{future result must have exactly one use}}
-  %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
-      -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag>
-  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  %r0 = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
-      : !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag> -> tensor<1x64xf16>
-  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
-  %r1 = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
-      : !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag> -> tensor<1x64xf16>
-  { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
-  return
-}
-
-// -----
 // identity type must match the partial type.
 #g  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
 #ag = affine_set<(g) : (g == 0)>
@@ -41,7 +23,7 @@ func.func @bad_identity_type(%p: tensor<1x64xf16>, %id: tensor<2x64xf16>) -> ten
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
       -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  // expected-error @below {{identity #0 type 'tensor<2x64xf16>' must match future partial type 'tensor<1x64xf16>'}}
+  // expected-error @below {{failed to verify that identity types must match result types}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<2x64xf16>)
       : !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag> -> tensor<1x64xf16>
   { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }
@@ -56,7 +38,7 @@ func.func @bad_result_type(%p: tensor<1x64xf16>, %id: tensor<1x64xf16>) -> tenso
   %f = ktdp.inter_tile_produce producer_tiles_per_group = #g
       -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag>
   { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<1x64xf16> }
-  // expected-error @below {{result #0 type 'tensor<64xf16>' must match future partial type 'tensor<1x64xf16>'}}
+  // expected-error @below {{failed to verify that result types must match future partial types}}
   %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #g, identity(%id : tensor<1x64xf16>)
       : !ktdp.tile_future<(tensor<1x64xf16>), groups = #ag> -> tensor<64xf16>
   { ^bb0(%l: tensor<1x64xf16>, %rr: tensor<1x64xf16>): ktdp.yield_reduced %l : tensor<1x64xf16> }

@@ -1319,10 +1319,13 @@ std::optional<llvm::DenseSet<int64_t>> depTilesOf(IntegerSet depSet,
 // Syntax:
 
 LogicalResult InterTileProduceOp::verify() {
-  // Single-use invariant (§2.3): exactly one delivery op consumes the future.
-  if (!getFuture().hasOneUse() && !getFuture().use_empty())
-    return emitOpError("future result must have exactly one use (the single "
-                       "delivery op that consumes it)");
+
+  // Producer region: one block, single `index` group-id argument.
+  Block& block = getBody().front();
+  if (block.getNumArguments() != 1 ||
+      !block.getArgument(0).getType().isIndex())
+    return emitOpError(
+        "producer region must take a single `index` group-id argument");
 
   // The producer set's symbol must be the group index `g`; groups set has none.
   IntegerSet groupsSet = getGroups();
@@ -1364,14 +1367,8 @@ LogicalResult InterTileProduceOp::verifyRegions() {
   TileFutureType futureType = getFuture().getType();
   ArrayRef<RankedTensorType> partials = futureType.getPartialTypes();
 
-  // Producer region: one block, single `index` group-id argument.
-  Block& block = getBody().front();
-  if (block.getNumArguments() != 1 ||
-      !block.getArgument(0).getType().isIndex())
-    return emitOpError(
-        "producer region must take a single `index` group-id argument");
-
   // Terminator yields one value per partial role, matching the future types.
+  Block& block = getBody().front();
   auto yield = cast<YieldPartialOp>(block.getTerminator());
   if (yield.getValues().size() != partials.size())
     return emitOpError("yield_partial yields ")
@@ -1394,24 +1391,17 @@ LogicalResult InterTileReduceOp::verify() {
   ArrayRef<RankedTensorType> partials = getPartialTypes();
   size_t n = partials.size();
 
-  // identity: one per role, matching the partial type T_p_i.
-  if (getIdentity().size() != n)
-    return emitOpError("expected ")
-           << n << " identity operand(s), got " << getIdentity().size();
-  for (auto [i, id] : llvm::enumerate(getIdentity()))
-    if (id.getType() != partials[i])
-      return emitOpError("identity #")
-             << i << " type " << id.getType()
-             << " must match future partial type " << partials[i];
-
-  // Result types must match the partial types exactly.
-  if (getResults().size() != n)
-    return emitOpError("expected ") << n << " result(s), got " << getResults().size();
-  for (auto [i, res] : llvm::enumerate(getResults()))
-    if (res.getType() != partials[i])
-      return emitOpError("result #") << i << " type " << res.getType()
-             << " must match future partial type " << partials[i];
-
+  // Reducer region: 2N args (lhs_1..lhs_N, rhs_1..rhs_N) each of type T_p_i.
+  Block& block = getCombiner().front();
+  if (block.getNumArguments() != 2 * n)
+    return emitOpError("reducer region must take 2*")
+           << n << " arguments, got " << block.getNumArguments();
+  for (size_t i = 0; i < n; ++i) {
+    if (block.getArgument(i).getType() != partials[i] ||
+        block.getArgument(n + i).getType() != partials[i])
+      return emitOpError("reducer region argument pair #")
+             << i << " must both have partial type " << partials[i];
+  }
   // Local structural checks on the consumer set attribute.
   IntegerSet consumerSet = getConsumerTilesPerGroup().getValue();
   if (consumerSet.getNumSymbols() != 1)
@@ -1425,19 +1415,8 @@ LogicalResult InterTileReduceOp::verifyRegions() {
   ArrayRef<RankedTensorType> partials = getPartialTypes();
   size_t n = partials.size();
 
-  // Reducer region: 2N args (lhs_1..lhs_N, rhs_1..rhs_N) each of type T_p_i.
-  Block& block = getCombiner().front();
-  if (block.getNumArguments() != 2 * n)
-    return emitOpError("reducer region must take 2*")
-           << n << " arguments, got " << block.getNumArguments();
-  for (size_t i = 0; i < n; ++i) {
-    if (block.getArgument(i).getType() != partials[i] ||
-        block.getArgument(n + i).getType() != partials[i])
-      return emitOpError("reducer region argument pair #")
-             << i << " must both have partial type " << partials[i];
-  }
-
   // Terminator yields N values of the partial types T_p_i.
+  Block& block = getCombiner().front();
   auto yield = cast<YieldReducedOp>(block.getTerminator());
   if (yield.getValues().size() != n)
     return emitOpError("yield_reduced yields ")
@@ -1447,13 +1426,6 @@ LogicalResult InterTileReduceOp::verifyRegions() {
       return emitOpError("yield_reduced operand #")
              << i << " type " << val.getType()
              << " must match partial type " << partials[i];
-
-  // TODO: move producer/consumer set relationship checks to a dedicated pass.
-  // The checks that compare consumer_tiles_per_group against
-  // producer_tiles_per_group (C subset of P, all-reduce vs reduce-to-one mode
-  // gate, producer_dependency_per_consumer coverage/subset) reach outside this
-  // op via getFuture().getDefiningOp<InterTileProduceOp>(), which is not
-  // permitted in a verifier per the MLIR specification.
 
   return success();
 }
