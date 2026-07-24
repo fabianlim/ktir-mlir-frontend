@@ -9,11 +9,13 @@
 #include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
 #include "Ktdp/KtdpDialect.hpp"
+#include "Ktdp/KtdpPasses.h"
 
 using namespace mlir;
 
 auto main(int argc, char **argv) -> int {
   registerAllPasses();
+  mlir::ktdp::registerKtdpPasses();
 
   DialectRegistry registry;
   registry.insert<ktdp::KtdpDialect>();

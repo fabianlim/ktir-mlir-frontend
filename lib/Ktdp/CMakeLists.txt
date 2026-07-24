@@ -1,6 +1,7 @@
 add_ktir_library(KTIRKtdpDialect
     KtdpAttrs.cpp
     KtdpDialect.cpp
+    KtdpInterTileHelpers.cpp
     KtdpOps.cpp
     KtdpTypes.cpp
 
@@ -28,3 +29,5 @@ add_ktir_library(KTIRKtdpDialect
     MLIRAnalysis
     MLIRPresburger
 )
+
+add_subdirectory(Conversions)

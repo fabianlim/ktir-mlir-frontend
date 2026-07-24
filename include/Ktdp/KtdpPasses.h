@@ -1,0 +1,49 @@
+//===- KtdpPasses.h - KTDP pass declarations ----------------------*- C++ -*-===//
+//
+// Copyright 2026 The KTIR Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file declares the passes for the KTDP dialect.
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef KTDP_PASSES_H
+#define KTDP_PASSES_H
+
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/DialectConversion.h"
+
+namespace mlir::ktdp {
+
+// Pull in generated pass declarations.
+#define GEN_PASS_DECL
+#include "Ktdp/KtdpPasses.hpp.inc"
+#undef GEN_PASS_DECL
+
+// Pull in generated pass registration helpers.
+#define GEN_PASS_REGISTRATION
+#include "Ktdp/KtdpPasses.hpp.inc"
+#undef GEN_PASS_REGISTRATION
+
+/// Populate \p target with the static op/dialect legality surface for KTIR.
+/// Legal: ktdp, func, arith, linalg, math, memref, scf, tensor.
+/// Downstream lowering pipelines can call this to share the same legality
+/// definition without duplicating it.
+void populateKTIRLegalTarget(mlir::ConversionTarget &target);
+
+} // namespace mlir::ktdp
+
+#endif // KTDP_PASSES_H
