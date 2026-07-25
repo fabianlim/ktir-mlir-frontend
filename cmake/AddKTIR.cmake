@@ -74,11 +74,12 @@ endmacro()
 
 # Creates a library target.
 function(add_ktir_library name)
-  cmake_parse_arguments(ARG "" "GROUP;EXPORT_NAME" "" ${ARGN})
+  cmake_parse_arguments(ARG "" "GROUP;EXPORT_NAME" "LINK_MLIR_LIBS" ${ARGN})
 
-  add_mlir_library(${name} 
-    ${ARG_UNPARSED_ARGUMENTS} 
-    DISABLE_INSTALL 
+  add_mlir_library(${name}
+    ${ARG_UNPARSED_ARGUMENTS}
+    ENABLE_AGGREGATION
+    DISABLE_INSTALL
     EXCLUDE_FROM_LIBMLIR
   )
   target_include_directories(${name} PUBLIC ${PROJECT_INCLUDE_DIRS})
@@ -101,6 +102,13 @@ function(add_ktir_library name)
 
   if(ARG_EXPORT_NAME)
     _install_ktir_library(${ARGV})
+  endif()
+
+  if(ARG_LINK_MLIR_LIBS)
+    mlir_target_link_libraries(${name} PUBLIC ${ARG_LINK_MLIR_LIBS})
+    get_mlir_filtered_link_libraries(_aggregate_deps ${ARG_LINK_MLIR_LIBS})
+    set_property(TARGET ${name} APPEND PROPERTY MLIR_AGGREGATE_DEPS
+      ${_aggregate_deps})
   endif()
 endfunction()
 
