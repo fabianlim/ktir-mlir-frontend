@@ -60,10 +60,11 @@ declare_mlir_python_extension(KTIRPythonExtensions.Main
     MLIRCAPITensor
     MLIRCAPITransforms
     KTIRKtdpCAPI
+    KTIRKtdpConversions
   PRIVATE_LINK_LIBS
     LLVMSupport
 )
-target_link_libraries(KTIRPythonExtensions.Main INTERFACE KTIR::KtdpDialect)
+target_link_libraries(KTIRPythonExtensions.Main INTERFACE KTIR::KtdpDialect KTIR::KtdpConversions)
 
 if(MLIR_PYTHON_STUBGEN_ENABLED)
   add_ktir_python_type_stubs(KTIRPythonExtensions.Main

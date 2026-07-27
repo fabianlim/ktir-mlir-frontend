@@ -7,7 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "Ktdp-c/Dialects.h"
+#include "Ktdp/KtdpPasses.h"
 #include "mlir-c/Dialect/Arith.h"
+#include "mlir-c/Support.h"
 #include "mlir-c/Dialect/Func.h"
 #include "mlir-c/Dialect/Linalg.h"
 #include "mlir-c/Dialect/Math.h"
@@ -109,6 +111,20 @@ NB_MODULE(_ktir, m) {
         }
       },
       nb::arg("context").none() = nb::none(), nb::arg("load") = true);
+
+  m.def("register_passes", []() { mlir::ktdp::registerKtdpPasses(); });
+
+  m.def(
+      "run_check_legality",
+      [](mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext ctx,
+         mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyOperationBase &op) {
+        MlirLogicalResult result = mlirKtdpRunCheckLegality(
+            ctx.get()->get(), op.getOperation().get());
+        if (!mlirLogicalResultIsSuccess(result))
+          throw nb::value_error("ktir-check-legality failed");
+      },
+      nb::arg("context").none() = nb::none(), nb::arg("op"),
+      "Run ktir-check-legality on *op*. Raises ValueError on failure.");
 
   //===--------------------------------------------------------------------===//
   // _ktir.ktdp Module

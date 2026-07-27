@@ -8,4 +8,5 @@ add_ktir_public_c_api_library(KTIRKtdpCAPI
 
   LINK_LIBS PUBLIC
     KTIRKtdpDialect
+    KTIRKtdpConversions
 )

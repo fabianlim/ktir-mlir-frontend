@@ -10,6 +10,7 @@
 #define KTDP_C_DIALECTS_H
 
 #include "mlir-c/IR.h"
+#include "mlir-c/Pass.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +42,12 @@ MLIR_CAPI_EXPORTED int64_t mlirKtdpRuntimeArgTypeGetGranularity(MlirType t);
 
 /// Returns the upperbound, or -1 if not set.
 MLIR_CAPI_EXPORTED int64_t mlirKtdpRuntimeArgTypeGetUpperbound(MlirType t);
+
+/// Create a pass manager on \p ctx, add ktir-check-legality, run on \p op,
+/// destroy the pass manager, and return success/failure.  Diagnostics are
+/// emitted to the context's diagnostic engine in the usual way.
+MLIR_CAPI_EXPORTED MlirLogicalResult
+mlirKtdpRunCheckLegality(MlirContext ctx, MlirOperation op);
 
 #ifdef __cplusplus
 }
