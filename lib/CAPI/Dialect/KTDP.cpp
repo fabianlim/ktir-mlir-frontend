@@ -9,8 +9,13 @@
 #include "ktir-c/Dialect/KTDP.h"
 
 #include "ktir/Dialect/KTDP/KTDPDialect.h"
+#include "ktir/Dialect/KTDP/KTDPPasses.h"
 #include "ktir/Dialect/KTDP/KTDPTypes.h"
+#include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Registration.h"
+#include "mlir/CAPI/Support.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/PassManager.h"
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Ktdp, ktdp,
                                       mlir::ktdp::KtdpDialect)
@@ -54,4 +59,10 @@ int64_t mlirKTDPRuntimeArgTypeGetGranularity(MlirType t) {
 int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t) {
   auto v = llvm::cast<mlir::ktdp::RuntimeArgType>(unwrap(t)).getUpperbound();
   return v.has_value() ? v.value() : -1;
+}
+
+MlirLogicalResult mlirKTDPRunCheckLegality(MlirContext ctx, MlirOperation op) {
+  mlir::PassManager pm(unwrap(ctx));
+  pm.addPass(mlir::ktdp::createKtirCheckLegalityPass());
+  return wrap(pm.run(unwrap(op)));
 }
