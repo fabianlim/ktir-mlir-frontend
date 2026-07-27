@@ -10,10 +10,6 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 
-// Must precede the generated .inc so that FieldParser<IntegerSet> is visible
-// to any assemblyFormat that uses a bare "IntegerSet" parameter.
-#include "Ktdp/KtdpUtils.hpp"
-
 // Open and close the target namespace so the generated .inc has it available.
 namespace mlir {
 namespace ktdp {

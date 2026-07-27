@@ -249,16 +249,16 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
 
     ```mlir
     // Single partial role.
-    !ktdp.tile_future<(tensor<1x64xf16>), groups = affine_set<(g) : (g == 0)>>
+    !ktdp.tile_future<(tensor<1x64xf16>), groups = (d0) : (d0 == 0)>
 
     // Two correlated roles (argmax-style: values, indices).
-    !ktdp.tile_future<(tensor<128xf32>, tensor<128xi32>), groups = affine_set<(g) : (g >= 0, -g + 7 >= 0)>>
+    !ktdp.tile_future<(tensor<128xf32>, tensor<128xi32>), groups = (d0) : (d0 >= 0, -d0 + 7 >= 0)>
     ```
   }];
 
   let parameters = (ins
     ArrayRefParameter<"RankedTensorType">:$partialTypes,
-    "IntegerSetAttr":$groups
+    "IntegerSet":$groups
   );
 
   let builders = [
@@ -266,8 +266,7 @@ def Ktdp_TileFutureType : KTDP_Type<"TileFuture", "tile_future"> {
       "::llvm::ArrayRef<::mlir::RankedTensorType>":$partialTypes,
       "::mlir::IntegerSet":$groups
     ), [{
-      return $_get(partialTypes.front().getContext(), partialTypes,
-                   ::mlir::IntegerSetAttr::get(groups));
+      return $_get(partialTypes.front().getContext(), partialTypes, groups);
     }]>
   ];
 

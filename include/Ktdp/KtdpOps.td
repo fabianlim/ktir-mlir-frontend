@@ -169,7 +169,7 @@ def KTDP_InterTileProduceOp : Ktdp_Op<"inter_tile_produce",
     }
     /// The groups set, read from the result tile_future type.
     ::mlir::IntegerSet getGroups() {
-      return getFuture().getType().getGroups().getValue();
+      return getFuture().getType().getGroups();
     }
   }];
 }
@@ -249,7 +249,7 @@ def KTDP_InterTileReduceOp : Ktdp_Op<"inter_tile_reduce",
     }
     /// The groups set, read from the operand tile_future type.
     ::mlir::IntegerSet getGroups() {
-      return getFuture().getType().getGroups().getValue();
+      return getFuture().getType().getGroups();
     }
   }];
 }

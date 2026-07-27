@@ -160,14 +160,13 @@ Type RuntimeArgType::parse(AsmParser &parser) {
 
 LogicalResult TileFutureType::verify(
     function_ref<InFlightDiagnostic()> emitError,
-    ArrayRef<RankedTensorType> partialTypes, IntegerSetAttr groups) {
+    ArrayRef<RankedTensorType> partialTypes, IntegerSet groups) {
   if (partialTypes.empty())
     return emitError() << "tile_future must carry at least one partial type";
 
-  IntegerSet set = groups.getValue();
-  if (set.getNumDims() != 1)
+  if (groups.getNumDims() != 1)
     return emitError() << "tile_future `groups` must have exactly one dimension (g)";
-  if (set.getNumSymbols() != 0)
+  if (groups.getNumSymbols() != 0)
     return emitError() << "tile_future `groups` must have no symbols";
 
   return success();

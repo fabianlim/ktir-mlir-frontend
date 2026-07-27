@@ -28,7 +28,9 @@
 #define GET_ATTRDEF_CLASSES
 #include "Ktdp/KtdpAttrs.cpp.inc"
 
-// Generated type definitions
+// Generated type definitions (KtdpUtils.hpp must precede: provides
+// FieldParser<IntegerSet> used by the assemblyFormat for TileFutureType)
+#include "Ktdp/KtdpUtils.hpp"
 #define GET_TYPEDEF_CLASSES
 #include "Ktdp/KtdpOpsTypes.cpp.inc"
 
