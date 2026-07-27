@@ -26,6 +26,11 @@ struct FieldParser<IntegerSet> {
   }
 };
 
+inline raw_ostream &operator<<(raw_ostream &os, IntegerSet set) {
+  set.print(os);
+  return os;
+}
+
 } // namespace mlir
 
 #endif // KTDP_KTDPUTILS_HPP_
