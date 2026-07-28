@@ -16,7 +16,7 @@
 
 import argparse
 import sys
-from tools_ktdp.ir_utils import walk_module
+from .ir_utils import walk_module
 
 
 def main() -> None:

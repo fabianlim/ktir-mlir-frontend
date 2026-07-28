@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import pytest
-from tools_ktdp import ktdp_context
-from tools_ktdp.ir_utils import walk_module
+from mlir_ktdp.tools import ktdp_context
+from mlir_ktdp.tools.ir_utils import walk_module
 
 
 # ---------------------------------------------------------------------------

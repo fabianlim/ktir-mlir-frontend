@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ktdp-walk = "tools_ktdp.__main__:main"
+ktdp-walk = "mlir_ktdp.tools.__main__:main"
 
 [project.optional-dependencies]
 test = ["pytest", "lit"]
@@ -20,11 +20,9 @@ test = ["pytest", "lit"]
 cmake.build-type = "Release"
 cmake.args = ["-DKTIR_ENABLE_PYTHON_BINDINGS=ON", "-GNinja"]
 install.components = ["KTIRPythonModules"]
-# mlir_ktdp/ is fully cmake-managed (extensions + MLIR-generated Python).
-# ktdp_tools/ is pure-Python, NOT managed by cmake, so scikit-build-core
-# handles it here.  In editable installs this gives ktdp_tools a live source
-# redirect; mlir_ktdp falls through to the cmake-installed snapshot as usual.
-wheel.packages = ["python/mlir_ktdp", "python/tools_ktdp"]
+# mlir_ktdp/ is fully cmake-managed (extensions + MLIR-generated Python),
+# including the tools/ subpackage which was previously a separate package.
+wheel.packages = ["python/mlir_ktdp"]
 
 [tool.scikit-build.cmake.define]
 MLIR_BINDINGS_PYTHON_INSTALL_PREFIX = "mlir_ktdp"

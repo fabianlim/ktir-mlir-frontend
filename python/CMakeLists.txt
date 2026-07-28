@@ -17,6 +17,9 @@ declare_mlir_python_sources(KTIRPythonSources
   ROOT_DIR "${PYTHON_ROOT_DIR}"
   SOURCES
     __init__.py
+    tools/__init__.py
+    tools/__main__.py
+    tools/ir_utils.py
 )
 if (MLIR_PYTHON_STUBGEN_ENABLED)
   declare_mlir_python_sources(KTIRPythonSources.type_stubs
