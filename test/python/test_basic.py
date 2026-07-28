@@ -14,8 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from mlir_ktdp.tools import ktdp_context
-from mlir_ktdp.tools.ir_utils import walk_module
+from mlir_ktdp.tools import ktdp_context, walk_module
 
 
 # ---------------------------------------------------------------------------

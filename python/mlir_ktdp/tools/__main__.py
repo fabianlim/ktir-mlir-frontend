@@ -16,7 +16,7 @@
 
 import argparse
 import sys
-from .ir_utils import walk_module
+from . import walk_module
 
 
 def main() -> None:

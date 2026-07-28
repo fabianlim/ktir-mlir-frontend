@@ -12,4 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .ir_utils import ktdp_context
+from contextlib import contextmanager
+from mlir_ktdp.ir import Context, Module
+import mlir_ktdp.dialects.ktdp as ktdp
+
+
+@contextmanager
+def ktdp_context():
+    """Context manager that creates an MLIR context with KTDP dialects registered."""
+    with Context() as ctx:
+        ktdp.register_dialects(ctx)
+        yield ctx
+
+
+def walk_module(source: str):
+    """Parse an MLIR module and recursively walk all operations."""
+    operations = []
+
+    def _walk_op(op, depth: int) -> None:
+        operations.append((op, depth))
+        for region in op.regions:
+            for block in region.blocks:
+                for child in block.operations:
+                    _walk_op(child, depth + 1)
+
+    with ktdp_context() as ctx:
+        module = Module.parse(source, ctx)
+        _walk_op(module.operation, 0)
+
+    return operations
