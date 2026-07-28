@@ -14,7 +14,7 @@ dependencies = [
 ktdp-walk = "mlir_ktdp.tools.__main__:main"
 
 [project.optional-dependencies]
-test = ["pytest", "lit"]
+test = ["lit"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"

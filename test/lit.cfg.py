@@ -24,3 +24,18 @@ config.substitutions = [
     for key, val in config.substitutions
 ]
 
+# Python bindings: add %python substitution and set PYTHONPATH.
+if getattr(config, "enable_python_bindings", False):
+    python_path = [
+        os.path.join(config.ktir_obj_root, config.python_package_install_prefix, "..")
+    ]
+    if "PYTHONPATH" in os.environ:
+        python_path += [os.environ["PYTHONPATH"]]
+    llvm_config.with_environment("PYTHONPATH", python_path, append_path=True)
+    # Ensure the configured Python interpreter is on PATH as 'python'.
+    llvm_config.with_environment(
+        "PATH",
+        os.path.dirname(config.python_executable),
+        append_path=True,
+    )
+
