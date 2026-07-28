@@ -1,2 +1,2 @@
-add_subdirectory(CAPI)
-add_subdirectory(Ktdp)
+add_subdirectory(CAPI/Dialect)
+add_subdirectory(Dialect/KTDP)

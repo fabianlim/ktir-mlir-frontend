@@ -1,20 +1,20 @@
 add_ktir_library(KTIRKtdpDialect
-    KtdpAttrs.cpp
-    KtdpDialect.cpp
-    KtdpOps.cpp
-    KtdpTypes.cpp
+    KTDPAttrs.cpp
+    KTDPDialect.cpp
+    KTDPOps.cpp
+    KTDPTypes.cpp
 
   ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/Ktdp
-    ${PROJECT_BINARY_DIR}/include/Ktdp
+    ${PROJECT_SOURCE_DIR}/include/ktir/Dialect/KTDP
+    ${PROJECT_BINARY_DIR}/include/ktir/Dialect/KTDP
 
   GROUP DIALECT
   EXPORT_NAME KtdpDialect
 
   DEPENDS
-    KTIRKtdpAttrInterfacesIncGen
-    KTIRKtdpAttrsIncGen
-    KTIRKtdpOpsIncGen
+    KTIRKTDPAttrInterfacesIncGen
+    KTIRKTDPAttrsIncGen
+    KTIRKTDPIncGen
 )
 
 mlir_target_link_libraries(KTIRKtdpDialect PUBLIC

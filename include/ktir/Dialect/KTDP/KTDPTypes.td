@@ -18,7 +18,7 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/BuiltinTypes.td"
 
-include "Ktdp/KtdpDialect.td"
+include "ktir/Dialect/KTDP/KTDPDialect.td"
 
 //===----------------------------------------------------------------------===//
 // KTDP Type Definitions

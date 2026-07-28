@@ -19,9 +19,9 @@
 // This file defines the operations in the KTDP operation set.
 //
 //===----------------------------------------------------------------------===//
-#include "Ktdp/KtdpOps.hpp"
+#include "ktir/Dialect/KTDP/KTDP.h"
 
-#include "Ktdp/KtdpTypes.hpp"
+#include "ktir/Dialect/KTDP/KTDPTypes.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "mlir/Analysis/FlatLinearValueConstraints.h"
@@ -1434,4 +1434,4 @@ LogicalResult InterTileReduceOp::verifyRegions() {
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 #define GET_OP_CLASSES
-#include "Ktdp/KtdpOps.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDP.cpp.inc"

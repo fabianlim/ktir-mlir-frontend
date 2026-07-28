@@ -1,8 +1,8 @@
-//===- KtdpOps.hpp - KTDP dialect ops public header -------*- C++ -*-===//
+//===- KTDP.h - KTDP dialect ops public header ----------*- C++ -*-===//
 //
 //===----------------------------------------------------------------------===//
-#ifndef KTDP_KTDPOPS_HPP_
-#define KTDP_KTDPOPS_HPP_
+#ifndef KTIR_DIALECT_KTDP_KTDP_H_
+#define KTIR_DIALECT_KTDP_KTDP_H_
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.h"
@@ -18,12 +18,12 @@
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Support/LLVM.h"
 
-#include "Ktdp/KtdpDialect.hpp"
-#include "Ktdp/KtdpAttrs.hpp"
-#include "Ktdp/KtdpTypes.hpp"
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
+#include "ktir/Dialect/KTDP/KTDPAttrs.h"
+#include "ktir/Dialect/KTDP/KTDPTypes.h"
 
 // Ops
 #define GET_OP_CLASSES
-#include "Ktdp/KtdpOps.hpp.inc"
+#include "ktir/Dialect/KTDP/KTDP.hpp.inc"
 
-#endif // KTDP_KTDPOPS_HPP_
+#endif // KTIR_DIALECT_KTDP_KTDP_H_

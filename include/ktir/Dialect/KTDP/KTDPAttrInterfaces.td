@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef KTDP_KTDPATTRINTERFACES_HPP
-#define KTDP_KTDPATTRINTERFACES_HPP
+#ifndef KTIR_DIALECT_KTDP_KTDPATTRINTERFACES_TD
+#define KTIR_DIALECT_KTDP_KTDPATTRINTERFACES_TD
 
 include "mlir/IR/OpBase.td"
 

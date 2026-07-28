@@ -7,7 +7,7 @@
 #include <mlir/Tools/mlir-lsp-server/MlirLspServerMain.h>
 #include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
-#include "Ktdp/KtdpDialect.hpp"
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
 
 using namespace mlir;
 

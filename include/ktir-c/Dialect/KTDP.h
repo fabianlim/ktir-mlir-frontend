@@ -1,4 +1,4 @@
-//===- Dialects.h - CAPI for dialects -----------------------------*- C -*-===//
+//===- KTDP.h - CAPI for KTDP dialect -----------------------------*- C -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef KTDP_C_DIALECTS_H
-#define KTDP_C_DIALECTS_H
+#ifndef KTIR_C_DIALECT_KTDP_H
+#define KTIR_C_DIALECT_KTDP_H
 
 #include "mlir-c/IR.h"
 
@@ -46,4 +46,4 @@ MLIR_CAPI_EXPORTED int64_t mlirKtdpRuntimeArgTypeGetUpperbound(MlirType t);
 }
 #endif
 
-#endif // KTDP_C_DIALECTS_H
+#endif // KTIR_C_DIALECT_KTDP_H

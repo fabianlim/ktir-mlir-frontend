@@ -2,10 +2,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ktdp/KtdpDialect.hpp"
-#include "Ktdp/KtdpAttrs.hpp"
-#include "Ktdp/KtdpOps.hpp"
-#include "Ktdp/KtdpTypes.hpp"
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
+#include "ktir/Dialect/KTDP/KTDPAttrs.h"
+#include "ktir/Dialect/KTDP/KTDP.h"
+#include "ktir/Dialect/KTDP/KTDPTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -16,21 +16,21 @@
 #include "mlir/IR/DialectImplementation.h"
 
 // Generated dialect definitions
-#include "Ktdp/KtdpOpsDialect.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDPDialect.cpp.inc"
 
 // Generated enum definitions
-#include "Ktdp/KtdpEnums.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDPEnums.cpp.inc"
 
 // Generated attr interface definitions
-#include "Ktdp/KtdpAttrInterfaces.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDPAttrInterfaces.cpp.inc"
 
 // Generated attribute definitions
 #define GET_ATTRDEF_CLASSES
-#include "Ktdp/KtdpAttrs.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDPAttrs.cpp.inc"
 
 // Generated type definitions
 #define GET_TYPEDEF_CLASSES
-#include "Ktdp/KtdpOpsTypes.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDPTypes.cpp.inc"
 
 using namespace mlir;
 using namespace mlir::ktdp;
@@ -38,11 +38,11 @@ using namespace mlir::ktdp;
 void KtdpDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "Ktdp/KtdpOps.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDP.cpp.inc"
   >();
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "Ktdp/KtdpOpsTypes.cpp.inc"
+#include "ktir/Dialect/KTDP/KTDPTypes.cpp.inc"
   >();
   addAttributes<
     SpyreMemorySpaceAttr

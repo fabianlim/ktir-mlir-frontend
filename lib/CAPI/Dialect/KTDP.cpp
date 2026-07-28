@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ktdp-c/Dialects.h"
+#include "ktir-c/Dialect/KTDP.h"
 
-#include "Ktdp/KtdpDialect.hpp"
-#include "Ktdp/KtdpTypes.hpp"
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
+#include "ktir/Dialect/KTDP/KTDPTypes.h"
 #include "mlir/CAPI/Registration.h"
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Ktdp, ktdp,

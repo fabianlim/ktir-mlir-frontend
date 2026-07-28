@@ -35,13 +35,13 @@ include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/IR/BuiltinAttributes.td"
 
 // Import the KTDP dialect definition
-include "Ktdp/KtdpDialect.td"
+include "ktir/Dialect/KTDP/KTDPDialect.td"
 
 // Import the KTDP type definitions
-include "Ktdp/KtdpTypes.td"
+include "ktir/Dialect/KTDP/KTDPTypes.td"
 
 // Import the KTDP attribute definitions
-include "Ktdp/KtdpAttrs.td"
+include "ktir/Dialect/KTDP/KTDPAttrs.td"
 
 // Base class for KTDP dialect operations. This operation inherits from the
 // base `Op` class in OpBase.td, and provides:

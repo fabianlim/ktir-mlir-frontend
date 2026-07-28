@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ktdp-c/Dialects.h"
+#include "ktir-c/Dialect/KTDP.h"
 #include "mlir-c/Dialect/Arith.h"
 #include "mlir-c/Dialect/Func.h"
 #include "mlir-c/Dialect/Linalg.h"

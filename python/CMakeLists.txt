@@ -35,7 +35,7 @@ declare_mlir_python_sources(KTIRPythonExtensions
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT KTIRPythonSources.Dialects
   ROOT_DIR "${PYTHON_ROOT_DIR}"
-  TD_FILE dialects/KtdpOps.td
+  TD_FILE dialects/KTDPOps.td
   SOURCES 
     dialects/ktdp.py
   DIALECT_NAME ktdp

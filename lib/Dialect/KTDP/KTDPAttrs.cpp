@@ -2,7 +2,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ktdp/KtdpAttrs.hpp"
+#include "ktir/Dialect/KTDP/KTDPAttrs.h"
 #include "mlir/IR/DialectImplementation.h"
 
 using namespace mlir;

@@ -8,7 +8,7 @@
 #include <mlir/InitAllPasses.h>
 #include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
-#include "Ktdp/KtdpDialect.hpp"
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
 
 using namespace mlir;
 

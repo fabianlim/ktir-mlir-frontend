@@ -9,6 +9,6 @@
 #ifndef PYTHON_BINDINGS_KTDP_OPS
 #define PYTHON_BINDINGS_KTDP_OPS
 
-include "Ktdp/KtdpOps.td"
+include "ktir/Dialect/KTDP/KTDP.td"
 
 #endif

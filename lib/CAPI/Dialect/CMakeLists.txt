@@ -1,8 +1,8 @@
 add_ktir_public_c_api_library(KTIRKtdpCAPI
-    Dialects.cpp
+    KTDP.cpp
 
   ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/Ktdp-c
+    ${PROJECT_SOURCE_DIR}/include/ktir-c/Dialect
 
   EXPORT_NAME KtdpCAPI
 

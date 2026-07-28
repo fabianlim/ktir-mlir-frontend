@@ -11,8 +11,8 @@
 #ifndef KTDP_ATTRS_TD
 #define KTDP_ATTRS_TD
 
-include "Ktdp/KtdpDialect.td"
-include "Ktdp/KtdpAttrInterfaces.td"
+include "ktir/Dialect/KTDP/KTDPDialect.td"
+include "ktir/Dialect/KTDP/KTDPAttrInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 
