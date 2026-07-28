@@ -17,30 +17,30 @@ extern "C" {
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Ktdp, ktdp);
 
-MLIR_CAPI_EXPORTED MlirType mlirKtdpAccessTileTypeGet(intptr_t rank,
+MLIR_CAPI_EXPORTED MlirType mlirKTDPAccessTileTypeGet(intptr_t rank,
                                                       int64_t *shape,
                                                       MlirType elementType);
 
-MLIR_CAPI_EXPORTED bool mlirKtdpTypeIsAAccessTileType(MlirType t);
+MLIR_CAPI_EXPORTED bool mlirTypeIsAKTDPAccessTileType(MlirType t);
 
-MLIR_CAPI_EXPORTED MlirTypeID mlirKtdpAccessTileTypeGetTypeID(void);
+MLIR_CAPI_EXPORTED MlirTypeID mlirKTDPAccessTileTypeGetTypeID(void);
 
-MLIR_CAPI_EXPORTED MlirType mlirKtdpRuntimeArgTypeGet(MlirContext ctx,
+MLIR_CAPI_EXPORTED MlirType mlirKTDPRuntimeArgTypeGet(MlirContext ctx,
                                                        MlirType underlyingType,
                                                        int64_t granularity,
                                                        int64_t upperbound);
 
-MLIR_CAPI_EXPORTED bool mlirKtdpTypeIsARuntimeArgType(MlirType t);
+MLIR_CAPI_EXPORTED bool mlirTypeIsAKTDPRuntimeArgType(MlirType t);
 
-MLIR_CAPI_EXPORTED MlirTypeID mlirKtdpRuntimeArgTypeGetTypeID(void);
+MLIR_CAPI_EXPORTED MlirTypeID mlirKTDPRuntimeArgTypeGetTypeID(void);
 
-MLIR_CAPI_EXPORTED MlirType mlirKtdpRuntimeArgTypeGetUnderlyingType(MlirType t);
+MLIR_CAPI_EXPORTED MlirType mlirKTDPRuntimeArgTypeGetUnderlyingType(MlirType t);
 
 /// Returns the granularity, or -1 if not set.
-MLIR_CAPI_EXPORTED int64_t mlirKtdpRuntimeArgTypeGetGranularity(MlirType t);
+MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetGranularity(MlirType t);
 
 /// Returns the upperbound, or -1 if not set.
-MLIR_CAPI_EXPORTED int64_t mlirKtdpRuntimeArgTypeGetUpperbound(MlirType t);
+MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t);
 
 #ifdef __cplusplus
 }

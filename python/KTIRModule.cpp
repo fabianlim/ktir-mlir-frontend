@@ -22,9 +22,9 @@ namespace py = mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN;
 namespace mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::ktdp {
 
 struct PyAccessTileType : PyConcreteType<PyAccessTileType, PyShapedType> {
-  static constexpr IsAFunctionTy isaFunction = mlirKtdpTypeIsAAccessTileType;
+  static constexpr IsAFunctionTy isaFunction = mlirTypeIsAKTDPAccessTileType;
   static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirKtdpAccessTileTypeGetTypeID;
+      mlirKTDPAccessTileTypeGetTypeID;
   static constexpr const char *pyClassName = "AccessTileType";
   using PyConcreteType::PyConcreteType;
 
@@ -35,7 +35,7 @@ struct PyAccessTileType : PyConcreteType<PyAccessTileType, PyShapedType> {
               DefaultingPyMlirContext context) {
           return PyAccessTileType(
               context->getRef(),
-              mlirKtdpAccessTileTypeGet(
+              mlirKTDPAccessTileTypeGet(
                   shape.size(), shape.data(),
                   elementType));
         },
@@ -45,9 +45,9 @@ struct PyAccessTileType : PyConcreteType<PyAccessTileType, PyShapedType> {
 };
 
 struct PyRuntimeArgType : PyConcreteType<PyRuntimeArgType, PyType> {
-  static constexpr IsAFunctionTy isaFunction = mlirKtdpTypeIsARuntimeArgType;
+  static constexpr IsAFunctionTy isaFunction = mlirTypeIsAKTDPRuntimeArgType;
   static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirKtdpRuntimeArgTypeGetTypeID;
+      mlirKTDPRuntimeArgTypeGetTypeID;
   static constexpr const char *pyClassName = "RuntimeArgType";
   using PyConcreteType::PyConcreteType;
 
@@ -58,7 +58,7 @@ struct PyRuntimeArgType : PyConcreteType<PyRuntimeArgType, PyType> {
               std::optional<int64_t> upperbound, DefaultingPyMlirContext context) {
           return PyRuntimeArgType(
               context->getRef(),
-              mlirKtdpRuntimeArgTypeGet(
+              mlirKTDPRuntimeArgTypeGet(
                   context->get(), underlyingType,
                   granularity.value_or(-1),
                   upperbound.value_or(-1)));
@@ -68,14 +68,14 @@ struct PyRuntimeArgType : PyConcreteType<PyRuntimeArgType, PyType> {
         nb::arg("upperbound") = nb::none(),
         nb::arg("context") = nb::none());
     c.def_prop_ro("underlying_type", [](PyRuntimeArgType &self) {
-      return mlirKtdpRuntimeArgTypeGetUnderlyingType(self);
+      return mlirKTDPRuntimeArgTypeGetUnderlyingType(self);
     });
     c.def_prop_ro("granularity", [](PyRuntimeArgType &self) -> std::optional<int64_t> {
-      int64_t v = mlirKtdpRuntimeArgTypeGetGranularity(self);
+      int64_t v = mlirKTDPRuntimeArgTypeGetGranularity(self);
       return v >= 0 ? std::optional<int64_t>(v) : std::nullopt;
     });
     c.def_prop_ro("upperbound", [](PyRuntimeArgType &self) -> std::optional<int64_t> {
-      int64_t v = mlirKtdpRuntimeArgTypeGetUpperbound(self);
+      int64_t v = mlirKTDPRuntimeArgTypeGetUpperbound(self);
       return v >= 0 ? std::optional<int64_t>(v) : std::nullopt;
     });
   }

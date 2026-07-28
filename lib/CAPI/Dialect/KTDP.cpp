@@ -15,43 +15,43 @@
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Ktdp, ktdp,
                                       mlir::ktdp::KtdpDialect)
 
-MlirType mlirKtdpAccessTileTypeGet(intptr_t rank, int64_t *shape, MlirType elementType) {
+MlirType mlirKTDPAccessTileTypeGet(intptr_t rank, int64_t *shape, MlirType elementType) {
   return wrap(mlir::ktdp::AccessTileType::get(llvm::ArrayRef(shape, static_cast<size_t>(rank)), unwrap(elementType)));
 }
 
-bool mlirKtdpTypeIsAAccessTileType(MlirType t) {
+bool mlirTypeIsAKTDPAccessTileType(MlirType t) {
   return llvm::isa<mlir::ktdp::AccessTileType>(unwrap(t));
 }
 
-MlirTypeID mlirKtdpAccessTileTypeGetTypeID() {
+MlirTypeID mlirKTDPAccessTileTypeGetTypeID() {
   return wrap(mlir::ktdp::AccessTileType::getTypeID());
 }
 
-MlirType mlirKtdpRuntimeArgTypeGet(MlirContext ctx, MlirType underlyingType,
+MlirType mlirKTDPRuntimeArgTypeGet(MlirContext ctx, MlirType underlyingType,
                                     int64_t granularity, int64_t upperbound) {
   std::optional<int64_t> gran = granularity >= 0 ? std::optional<int64_t>(granularity) : std::nullopt;
   std::optional<int64_t> ub = upperbound >= 0 ? std::optional<int64_t>(upperbound) : std::nullopt;
   return wrap(mlir::ktdp::RuntimeArgType::get(unwrap(ctx), unwrap(underlyingType), gran, ub));
 }
 
-bool mlirKtdpTypeIsARuntimeArgType(MlirType t) {
+bool mlirTypeIsAKTDPRuntimeArgType(MlirType t) {
   return llvm::isa<mlir::ktdp::RuntimeArgType>(unwrap(t));
 }
 
-MlirTypeID mlirKtdpRuntimeArgTypeGetTypeID() {
+MlirTypeID mlirKTDPRuntimeArgTypeGetTypeID() {
   return wrap(mlir::ktdp::RuntimeArgType::getTypeID());
 }
 
-MlirType mlirKtdpRuntimeArgTypeGetUnderlyingType(MlirType t) {
+MlirType mlirKTDPRuntimeArgTypeGetUnderlyingType(MlirType t) {
   return wrap(llvm::cast<mlir::ktdp::RuntimeArgType>(unwrap(t)).getUnderlyingType());
 }
 
-int64_t mlirKtdpRuntimeArgTypeGetGranularity(MlirType t) {
+int64_t mlirKTDPRuntimeArgTypeGetGranularity(MlirType t) {
   auto v = llvm::cast<mlir::ktdp::RuntimeArgType>(unwrap(t)).getGranularity();
   return v.has_value() ? v.value() : -1;
 }
 
-int64_t mlirKtdpRuntimeArgTypeGetUpperbound(MlirType t) {
+int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t) {
   auto v = llvm::cast<mlir::ktdp::RuntimeArgType>(unwrap(t)).getUpperbound();
   return v.has_value() ? v.value() : -1;
 }
