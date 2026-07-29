@@ -15,8 +15,17 @@
 # limitations under the License.
 
 from mlir_ktdp.ir import Module
+from mlir_ktdp.passmanager import PassManager
 from mlir_ktdp.tools import ktdp_context
-from mlir_ktdp._mlir_libs._ktir import run_check_legality
+from mlir_ktdp._mlir_libs._ktir import register_passes
+
+# Register KTDP passes so the "ktir-check-legality" pipeline is known to
+# PassManager.parse. This exercises the standard pass-pipeline path (see the
+# CAPI aggregate fix) rather than the low-level run_check_legality() escape
+# hatch, which remains available in the bindings.
+register_passes()
+
+CHECK_LEGALITY_PIPELINE = "builtin.module(ktir-check-legality)"
 
 
 # ---------------------------------------------------------------------------
@@ -120,16 +129,18 @@ module {
 def check_valid(source):
     with ktdp_context() as ctx:
         mod = Module.parse(source, ctx)
-        run_check_legality(ctx, mod.operation)
+        pm = PassManager.parse(CHECK_LEGALITY_PIPELINE, ctx)
+        pm.run(mod.operation)
 
 
 def check_invalid(source):
     with ktdp_context() as ctx:
         mod = Module.parse(source, ctx)
+        pm = PassManager.parse(CHECK_LEGALITY_PIPELINE, ctx)
         raised = False
         try:
-            run_check_legality(ctx, mod.operation)
-        except ValueError:
+            pm.run(mod.operation)
+        except Exception:
             raised = True
         assert raised, "expected ktir-check-legality to fail"
 

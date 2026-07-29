@@ -66,3 +66,5 @@ MlirLogicalResult mlirKTDPRunCheckLegality(MlirContext ctx, MlirOperation op) {
   pm.addPass(mlir::ktdp::createKtirCheckLegalityPass());
   return wrap(pm.run(unwrap(op)));
 }
+
+void mlirKTDPRegisterPasses(void) { mlir::ktdp::registerKtdpPasses(); }

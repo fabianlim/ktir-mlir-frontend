@@ -49,6 +49,11 @@ MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t);
 MLIR_CAPI_EXPORTED MlirLogicalResult
 mlirKTDPRunCheckLegality(MlirContext ctx, MlirOperation op);
 
+/// Register all KTDP passes with the global pass registry.  This must be
+/// called through the shared CAPI aggregate library so that passes land in the
+/// same PassRegistry that PassManager pipeline parsing consults.
+MLIR_CAPI_EXPORTED void mlirKTDPRegisterPasses(void);
+
 #ifdef __cplusplus
 }
 #endif
