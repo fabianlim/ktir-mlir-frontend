@@ -108,6 +108,13 @@ NB_MODULE(_ktir, m) {
       },
       nb::arg("context") = nb::none(), nb::arg("load") = true);
 
+  // Register passes through the CAPI so registration lands in the single
+  // PassRegistry embedded in the shared CAPI aggregate library (the same
+  // registry PassManager pipeline parsing consults). Calling the C++
+  // mlir::ktdp::registerKtdpPasses() directly here would populate _ktir.so's
+  // own statically-linked registry instead, which PassManager never sees.
+  m.def("register_passes", []() { mlirKTDPRegisterPasses(); });
+
   //===--------------------------------------------------------------------===//
   // _ktir.ktdp Module
   //===--------------------------------------------------------------------===//
