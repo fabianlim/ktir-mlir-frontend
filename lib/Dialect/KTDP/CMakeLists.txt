@@ -15,17 +15,16 @@ add_ktir_library(KTIRKtdpDialect
     KTIRKTDPAttrInterfacesIncGen
     KTIRKTDPAttrsIncGen
     KTIRKTDPIncGen
-)
 
-mlir_target_link_libraries(KTIRKtdpDialect PUBLIC
-  MLIRIR
-  MLIRInferTypeOpInterface
-  MLIRAffineDialect
-  MLIRMemRefDialect
-  MLIRTensorDialect
-  MLIRSCFDialect
-  MLIRFuncDialect
-  MLIRArithDialect
-  MLIRAnalysis
-  MLIRPresburger
+  LINK_MLIR_LIBS
+    MLIRIR
+    MLIRInferTypeOpInterface
+    MLIRAffineDialect
+    MLIRMemRefDialect
+    MLIRTensorDialect
+    MLIRSCFDialect
+    MLIRFuncDialect
+    MLIRArithDialect
+    MLIRAnalysis
+    MLIRPresburger
 )
