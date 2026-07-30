@@ -7,6 +7,6 @@
 
 #include "mlir/IR/Attributes.h"
 
-#include "ktir/Dialect/KTDP/KTDPAttrInterfaces.hpp.inc"
+#include "ktir/Dialect/KTDP/KTDPAttrInterfaces.h.inc"
 
 #endif // KTIR_DIALECT_KTDP_KTDPATTRINTERFACES_H

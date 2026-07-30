@@ -41,6 +41,7 @@ declare_mlir_dialect_python_bindings(
   SOURCES 
     dialects/ktdp.py
   DIALECT_NAME ktdp
+  GEN_ENUM_BINDINGS
 )
 
 ################################################################################
@@ -61,7 +62,7 @@ declare_mlir_python_extension(KTIRPythonExtensions.Main
     MLIRCAPISCF
     MLIRCAPITensor
     MLIRCAPITransforms
-    KTIRKtdpCAPI
+    KTIRKTDPCAPI
   PRIVATE_LINK_LIBS
     LLVMSupport
 )

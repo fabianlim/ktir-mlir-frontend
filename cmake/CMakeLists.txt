@@ -23,7 +23,6 @@ install(DIRECTORY
     PATTERN "*.h"
     PATTERN "*.hpp"
     PATTERN "*.h.inc"
-    PATTERN "*.hpp.inc"
     REGEX "CMakeFiles" EXCLUDE 
 )
 

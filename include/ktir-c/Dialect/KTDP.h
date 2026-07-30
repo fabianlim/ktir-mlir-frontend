@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef KTIR_C_DIALECT_KTDP_H
-#define KTIR_C_DIALECT_KTDP_H
+#ifndef KTIR_C_DIALECT_KTDP_H_
+#define KTIR_C_DIALECT_KTDP_H_
 
 #include "mlir-c/IR.h"
 
@@ -46,4 +46,4 @@ MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t);
 }
 #endif
 
-#endif // KTIR_C_DIALECT_KTDP_H
+#endif // KTIR_C_DIALECT_KTDP_H_

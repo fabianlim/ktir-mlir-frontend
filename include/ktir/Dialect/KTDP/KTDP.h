@@ -24,6 +24,6 @@
 
 // Ops
 #define GET_OP_CLASSES
-#include "ktir/Dialect/KTDP/KTDP.hpp.inc"
+#include "ktir/Dialect/KTDP/KTDP.h.inc"
 
 #endif // KTIR_DIALECT_KTDP_KTDP_H_

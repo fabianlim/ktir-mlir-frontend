@@ -17,13 +17,12 @@ endfunction()
 
 # Creates a canonical MLIR dialect TableGen target and adds it to ktir-headers.
 function(add_ktir_dialect dialect dialect_namespace)
-  # TODO: Examine if we want to stick to the .hpp convention or use .h
   set(LLVM_TARGET_DEFINITIONS ${dialect}.td)
-  mlir_tablegen(${dialect}.hpp.inc -gen-op-decls)
+  mlir_tablegen(${dialect}.h.inc -gen-op-decls)
   mlir_tablegen(${dialect}.cpp.inc -gen-op-defs)
-  mlir_tablegen(${dialect}Types.hpp.inc -gen-typedef-decls -typedefs-dialect=${dialect_namespace})
+  mlir_tablegen(${dialect}Types.h.inc -gen-typedef-decls -typedefs-dialect=${dialect_namespace})
   mlir_tablegen(${dialect}Types.cpp.inc -gen-typedef-defs -typedefs-dialect=${dialect_namespace})
-  mlir_tablegen(${dialect}Dialect.hpp.inc -gen-dialect-decls -dialect=${dialect_namespace})
+  mlir_tablegen(${dialect}Dialect.h.inc -gen-dialect-decls -dialect=${dialect_namespace})
   mlir_tablegen(${dialect}Dialect.cpp.inc -gen-dialect-defs -dialect=${dialect_namespace})
   add_ktir_tablegen_target(KTIR${dialect}IncGen)
 endfunction()
