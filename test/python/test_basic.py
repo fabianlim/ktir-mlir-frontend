@@ -15,6 +15,9 @@
 # limitations under the License.
 
 from mlir_ktdp.tools import ktdp_context, walk_module
+from mlir_ktdp.ir import Operation, OpView
+import mlir_ktdp.dialects.builtin as builtin
+import mlir_ktdp.dialects.ktdp as ktdp
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +33,7 @@ module {
 }
 """
 SIMPLE_MODULE_OPS = [
-    ("builtin.module", 0),
+    (builtin.ModuleOp, 0),
     ("func.func",      1),
     ("arith.addi",     2),
     ("func.return",    2),
@@ -59,14 +62,14 @@ module {
 }
 """
 KTDP_BASIC_MODULE_OPS = [
-    ("builtin.module",              0),
+    (builtin.ModuleOp,              0),
     ("func.func",                   1),
     ("arith.constant",              2),
     ("arith.constant",              2),
-    ("ktdp.construct_memory_view",  2),
-    ("ktdp.construct_access_tile",  2),
-    ("ktdp.load",                   2),
-    ("ktdp.store",                  2),
+    (ktdp.ConstructMemoryViewOp,    2),
+    (ktdp.ConstructAccessTilesOp,   2),
+    (ktdp.LoadOp,                   2),
+    (ktdp.StoreOp,                  2),
     ("func.return",                 2),
 ]
 
@@ -97,18 +100,18 @@ module {
 }
 """
 KTDP_CONTROL_FLOW_MODULE_OPS = [
-    ("builtin.module",             0),
+    (builtin.ModuleOp,             0),
     ("func.func",                  1),
     ("arith.constant",             2),
     ("arith.constant",             2),
     ("arith.constant",             2),
     ("arith.constant",             2),
-    ("ktdp.get_compute_tile_id",   2),
+    (ktdp.GetComputeTileIdOp,      2),
     ("arith.muli",                 2),
-    ("ktdp.construct_memory_view", 2),
+    (ktdp.ConstructMemoryViewOp,   2),
     ("scf.for",                    2),
-    ("ktdp.construct_access_tile", 3),
-    ("ktdp.load",                  3),
+    (ktdp.ConstructAccessTilesOp,  3),
+    (ktdp.LoadOp,                  3),
     ("scf.yield",                  3),
     ("func.return",                2),
 ]
@@ -121,10 +124,14 @@ KTDP_CONTROL_FLOW_MODULE_OPS = [
 with ktdp_context():
     pass
 
+def view_or_name(op: Operation | OpView) -> type[OpView] | str:
+    op = op.opview
+    return op.name if op.__class__ == OpView else op.__class__
+
 for source, expected in [
     (SIMPLE_MODULE,            SIMPLE_MODULE_OPS),
     (KTDP_BASIC_MODULE,        KTDP_BASIC_MODULE_OPS),
     (KTDP_CONTROL_FLOW_MODULE, KTDP_CONTROL_FLOW_MODULE_OPS),
 ]:
     ops = walk_module(source)
-    assert [(op.name, depth) for op, depth in ops] == expected
+    assert [(view_or_name(op), depth) for op, depth in ops] == expected
