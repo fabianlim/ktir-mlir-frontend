@@ -10,6 +10,7 @@ set(_source_components
   KTIRPythonExtensions
 )
 
+
 if(MLIR_PYTHON_STUBGEN_ENABLED)
   list(APPEND _source_components MLIRPythonExtension.Core.type_stub_gen)
 endif()
@@ -27,9 +28,6 @@ add_mlir_python_common_capi_library(KTIRKtdpPythonCAPI
   DECLARED_SOURCES ${_source_components}
 )
 
-# FIXME: It is unclear why this work-around is needed on some platforms.
-set_target_properties(KTIRKtdpPythonCAPI PROPERTIES LINKER_LANGUAGE CXX)
-
 add_mlir_python_modules(KTIRPythonModules
   ROOT_PREFIX "${PYTHON_PACKAGE_DIR}"
   INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
@@ -37,3 +35,4 @@ add_mlir_python_modules(KTIRPythonModules
   COMMON_CAPI_LINK_LIBS
     KTIRKtdpPythonCAPI
 )
+
