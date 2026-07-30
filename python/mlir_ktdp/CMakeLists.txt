@@ -21,7 +21,7 @@ endif()
 # than each extension statically embedding its own copy. Without this, passes
 # registered via register_passes() land in a different registry than the one
 # PassManager.parse() consults, and pipeline parsing fails.
-add_mlir_python_common_capi_library(KTIRKtdpPythonCAPI
+add_mlir_python_common_capi_library(KTIRPythonCAPI
   INSTALL_COMPONENT KTIRPythonModules
   INSTALL_DESTINATION "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}/_mlir_libs"
   OUTPUT_DIRECTORY "${PYTHON_PACKAGE_DIR}/_mlir_libs"
@@ -33,6 +33,6 @@ add_mlir_python_modules(KTIRPythonModules
   INSTALL_PREFIX "${MLIR_BINDINGS_PYTHON_INSTALL_PREFIX}"
   DECLARED_SOURCES ${_source_components}
   COMMON_CAPI_LINK_LIBS
-    KTIRKtdpPythonCAPI
+    KTIRPythonCAPI
 )
 
