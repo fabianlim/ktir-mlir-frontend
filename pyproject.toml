@@ -18,14 +18,16 @@ test = ["lit"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
-cmake.args = ["-DKTIR_ENABLE_PYTHON_BINDINGS=ON", "-GNinja"]
+cmake.args = ["-GNinja"]
 install.components = ["KTIRPythonModules"]
 # mlir_ktdp/ is fully cmake-managed (extensions + MLIR-generated Python),
 # including the tools/ subpackage which was previously a separate package.
 wheel.packages = ["python/mlir_ktdp"]
 
 [tool.scikit-build.cmake.define]
+KTIR_ENABLE_PYTHON_BINDINGS = "ON"
 MLIR_BINDINGS_PYTHON_INSTALL_PREFIX = "mlir_ktdp"
+MLIR_PYTHON_STUBGEN_ENABLED = "ON"
 
 [dependency-groups]
 # Base build tools for all LLVM builds (stable and nightly).

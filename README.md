@@ -75,6 +75,10 @@ cmake --build build -j$(nproc)
 The built package lands at `build/python_packages/ktdp/` — use
 `PYTHONPATH=build/python_packages/ktdp` to import `mlir_ktdp`.
 
+> **Note:** Add `-DMLIR_PYTHON_STUBGEN_ENABLED=ON` to generate `.pyi` type
+> stubs for IDE support. This is set automatically when building via
+> `uv pip install` (see below).
+
 > **Note:** `-DLLVM_EXTERNAL_LIT` is only needed to run LIT tests. `mlir_wheel`
 > does not ship `llvm-lit`, so cmake cannot find it automatically.
 
@@ -106,7 +110,7 @@ MLIR_DIR=$(uv run --no-project python scripts/setup_mlir.py)
 # Force mlir_wheel (no token required, always fetches latest):
 MLIR_DIR=$(uv run --no-project python scripts/setup_mlir.py --wheel)
 
-# Build and install the Python wheel
+# Build and install the Python wheel (stubgen runs automatically for IDE stubs)
 CMAKE_ARGS="-DMLIR_DIR=$MLIR_DIR" uv pip install .
 ```
 
