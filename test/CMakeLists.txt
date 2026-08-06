@@ -1,10 +1,5 @@
 llvm_canonicalize_cmake_booleans(KTIR_ENABLE_PYTHON_BINDINGS)
 
-# Propagate LLVM_LIT_ARGS cache value 
-if(DEFINED CACHE{LLVM_LIT_ARGS})
-  set(LLVM_LIT_ARGS "$CACHE{LLVM_LIT_ARGS}")
-endif()
-
 configure_lit_site_cfg(
         lit.site.cfg.py.in
   ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py

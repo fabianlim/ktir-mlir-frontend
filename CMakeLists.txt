@@ -44,6 +44,11 @@ if(PROJECT_IS_TOP_LEVEL)
   include(GNUInstallDirs)
   set(CMAKE_INSTALL_RPATH_USE_LINK_PATH YES)
   set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+
+  # Propagate the cache value here so the -D flag actually takes effect.
+  if(DEFINED CACHE{LLVM_LIT_ARGS})
+    set(LLVM_LIT_ARGS "$CACHE{LLVM_LIT_ARGS}")
+  endif()
 endif()
 
 #
