@@ -1,9 +1,5 @@
 llvm_canonicalize_cmake_booleans(KTIR_ENABLE_PYTHON_BINDINGS)
 
-# LLVMConfig.cmake hard-codes LLVM_LIT_ARGS to "-sv"; clear it so the
-# ARGS passed explicitly to add_lit_testsuite are the only flags used.
-set(LLVM_LIT_ARGS "")
-
 configure_lit_site_cfg(
         lit.site.cfg.py.in
   ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
