@@ -15,9 +15,11 @@
 # limitations under the License.
 
 from mlir_ktdp.tools import ktdp_context, walk_module
-from mlir_ktdp.ir import Operation, OpView
+import mlir_ktdp.dialects.arith as arith
 import mlir_ktdp.dialects.builtin as builtin
+import mlir_ktdp.dialects.func as func
 import mlir_ktdp.dialects.ktdp as ktdp
+import mlir_ktdp.dialects.scf as scf
 
 
 # ---------------------------------------------------------------------------
@@ -34,9 +36,9 @@ module {
 """
 SIMPLE_MODULE_OPS = [
     (builtin.ModuleOp, 0),
-    ("func.func",      1),
-    ("arith.addi",     2),
-    ("func.return",    2),
+    (func.FuncOp,      1),
+    (arith.AddIOp,     2),
+    (func.ReturnOp,    2),
 ]
 
 # Flat KTDP ops: memory view, access tile, load, store — no control flow.
@@ -63,14 +65,14 @@ module {
 """
 KTDP_BASIC_MODULE_OPS = [
     (builtin.ModuleOp,              0),
-    ("func.func",                   1),
-    ("arith.constant",              2),
-    ("arith.constant",              2),
+    (func.FuncOp,                   1),
+    (arith.ConstantOp,              2),
+    (arith.ConstantOp,              2),
     (ktdp.ConstructMemoryViewOp,    2),
     (ktdp.ConstructAccessTilesOp,   2),
     (ktdp.LoadOp,                   2),
     (ktdp.StoreOp,                  2),
-    ("func.return",                 2),
+    (func.ReturnOp,                 2),
 ]
 
 # Nested KTDP ops: ktdp.load / ktdp.construct_access_tile are inside an scf.for.
@@ -101,19 +103,19 @@ module {
 """
 KTDP_CONTROL_FLOW_MODULE_OPS = [
     (builtin.ModuleOp,             0),
-    ("func.func",                  1),
-    ("arith.constant",             2),
-    ("arith.constant",             2),
-    ("arith.constant",             2),
-    ("arith.constant",             2),
+    (func.FuncOp,                  1),
+    (arith.ConstantOp,             2),
+    (arith.ConstantOp,             2),
+    (arith.ConstantOp,             2),
+    (arith.ConstantOp,             2),
     (ktdp.GetComputeTileIdOp,      2),
-    ("arith.muli",                 2),
+    (arith.MulIOp,                 2),
     (ktdp.ConstructMemoryViewOp,   2),
-    ("scf.for",                    2),
+    (scf.ForOp,                    2),
     (ktdp.ConstructAccessTilesOp,  3),
     (ktdp.LoadOp,                  3),
-    ("scf.yield",                  3),
-    ("func.return",                2),
+    (scf.YieldOp,                  3),
+    (func.ReturnOp,                2),
 ]
 
 
@@ -124,14 +126,13 @@ KTDP_CONTROL_FLOW_MODULE_OPS = [
 with ktdp_context():
     pass
 
-def view_or_name(op: Operation | OpView) -> type[OpView] | str:
-    op = op.opview
-    return op.name if op.__class__ == OpView else op.__class__
+def view_or_name(op):
+    return op.opview.__class__
 
 for source, expected in [
     (SIMPLE_MODULE,            SIMPLE_MODULE_OPS),
     (KTDP_BASIC_MODULE,        KTDP_BASIC_MODULE_OPS),
     (KTDP_CONTROL_FLOW_MODULE, KTDP_CONTROL_FLOW_MODULE_OPS),
 ]:
-    ops = walk_module(source)
-    assert [(view_or_name(op), depth) for op, depth in ops] == expected
+    actual = [(view_or_name(op), depth) for op, depth in walk_module(source)]
+    assert actual == expected, f"\nactual:   {actual}\nexpected: {expected}"
