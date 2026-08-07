@@ -1,9 +1,10 @@
 # Inter-tile communications in KTIR
 
-**Scope:** Five ops — `ktdp.inter_tile_produce`, `ktdp.inter_tile_consume`,
-`ktdp.inter_tile_reduce`, `ktdp.inter_tile_reduce_scatter`, and
-`ktdp.inter_tile_gather` — that together cover all four inter-tile
-communication patterns: broadcast, all-reduce, reduce-scatter, and gather.
+**Scope:** Six ops — `ktdp.inter_tile_produce`, `ktdp.inter_tile_consume`,
+`ktdp.inter_tile_reduce`, `ktdp.inter_tile_reduce_scatter`,
+`ktdp.inter_tile_gather`, and `ktdp.inter_tile_scatter` — that together
+cover all five inter-tile communication patterns: broadcast, all-reduce,
+reduce-scatter, gather, and scatter.
 
 ---
 
@@ -14,8 +15,9 @@ Inter-tile communication involves three orthogonal concerns:
 1. **Production** — which tiles contribute data and what they contribute.
 2. **Delivery** — how the contributed data is delivered to the receiving
    tiles: pass-through unchanged (broadcast), folded by a combiner
-   (reduce), folded then scattered (reduce-scatter), or assembled by
-   ordered concatenation of the producers' partials (gather).
+   (reduce), folded then scattered (reduce-scatter), assembled by
+   ordered concatenation of the producers' partials (gather), or split
+   by ordered partition of a single producer's tensor (scatter).
 3. **Synchronization granularity** — whether each consumer tile waits
    for *all* producer tiles in its group to complete (full-barrier mode),
    or only for the specific producers whose data it requires (per-tile
@@ -23,7 +25,7 @@ Inter-tile communication involves three orthogonal concerns:
    individual dependencies are satisfied, reducing stall time when
    producers finish at different times.
 
-Separating production and delivery into a unified production op plus four
+Separating production and delivery into a unified production op plus five
 delivery ops keeps each op single-purpose and enables any combination:
 
 | Pattern | Production op | Delivery op |
@@ -32,6 +34,7 @@ delivery ops keeps each op single-purpose and enables any combination:
 | Reduce | `ktdp.inter_tile_produce` | `ktdp.inter_tile_reduce` |
 | Reduce-scatter | `ktdp.inter_tile_produce` | `ktdp.inter_tile_reduce_scatter` |
 | Gather | `ktdp.inter_tile_produce` | `ktdp.inter_tile_gather` |
+| Scatter | `ktdp.inter_tile_produce` | `ktdp.inter_tile_scatter` |
 
 `ktdp.inter_tile_produce` returns a `!ktdp.tile_future<T_p, #groups>` SSA
 value. The group set `#groups` is carried as a parameter of the future
@@ -436,14 +439,106 @@ consumer set is a plain gather; an all-tiles consumer set is an all-gather.
 the same structure as §4.5 — each role is concatenated independently along
 `gather_dimension`.
 
-Synchronization follows the shared model in §7: the def-use edge from
+Synchronization follows the shared model in §8: the def-use edge from
 `ktdp.inter_tile_produce` orders production before delivery, and
 `producer_dependency_per_consumer` selects full-barrier (absent) or per-tile
 (present) waiting.
 
 ---
 
-## 7. Synchronization model
+## 7. `ktdp.inter_tile_scatter` — splitting delivery op
+
+### 7.1 Operand and attributes
+
+**Operand:** `!ktdp.tile_future<T_p_1, ..., T_p_N, #groups>` returned by
+`ktdp.inter_tile_produce`. The `#groups` parameter supplies the group set;
+there is no separate `groups` attribute (§1). Each group has exactly one
+producer tile per role — the tile that holds the whole tensor to be split.
+The verifier rejects a `producer_tiles_per_group` that selects more than
+one tile per group.
+
+**`consumer_tiles_per_group`** — tiles that receive the slices. The
+producer's tensor is partitioned into `|consumer tiles per group|` equal
+chunks along `scatter_dimension`, one chunk delivered to each consumer in
+ascending within-group local-index order.
+
+**`scatter_dimension`** (i64) — axis of the producer type `T_p` along
+which the tensor is split. Its size must be divisible by the number of
+consumers per group.
+
+**No `producer_dependency_per_consumer`.** With a single producer per
+group there is exactly one producer to wait for, so full-barrier and
+per-tile synchronization collapse to the same thing; the attribute would
+be degenerate and is therefore omitted.
+
+**No combiner region and no `identity` operand.** Like
+`ktdp.inter_tile_consume` and `ktdp.inter_tile_gather`, scatter performs no
+folding — it partitions one tensor by position. It carries no region and
+no identity operand.
+
+### 7.2 Type rules
+
+For each role `i`, `T_s_i` is `T_p_i` with the size along
+`scatter_dimension` divided by `|consumer tiles per group|`. The same
+`scatter_dimension` and the same divisor apply to all roles.
+
+**Per-tile slice.** The consumer with within-group local index `l` (its
+ascending position among the consumers) receives slice
+`[l*chunk : (l+1)*chunk]` along `scatter_dimension`, where
+`chunk = T_p[scatter_dimension] / |consumers|` is the per-consumer slice
+size. This placement is deterministic and requires no commutativity.
+
+**Advantage over reduce-scatter.** `ktdp.inter_tile_reduce_scatter` can
+express a bare split only by folding a single-producer axis with a
+meaningless combiner and identity, and it shrinks a *within-group tile
+axis* — forcing the partial to carry an artificial unit dimension. Scatter
+splits the natural data axis directly, so the slice type is the honest
+`T_p` with one axis divided (e.g. `<128x1x64>` → `<32x1x64>`) rather than
+`<1x...>`. The op name and signature match the pattern.
+
+### 7.3 Op signature
+
+```mlir
+%scattered_1, ..., %scattered_N = ktdp.inter_tile_scatter(%future)
+    consumer_tiles_per_group = <affine-set>,
+    scatter_dimension        = <i64>
+    : !ktdp.tile_future<T_p_1, ..., T_p_N, #groups> -> T_s_1, ..., T_s_N
+```
+
+No block is needed — the slice value is an SSA result consumed by ordinary
+function-scope SPMD code, exactly as with `ktdp.inter_tile_consume` (§3.2).
+
+### 7.4 Result semantics
+
+The op produces N variadic SSA values, one per tensor role. The values are
+*per-tile-valued* — each consumer tile holds its own slice when the op
+completes. Consumers in a group receive disjoint, ordered slices that
+together tile the producer's tensor along `scatter_dimension`; tiles in
+different groups partition their own group's producer tensor.
+
+**Non-participating tiles.** Results are undefined for tiles not in
+`consumer_tiles_per_group`, as in §4.5 and §5.5.
+
+**Multi-tensor (variadic) scatter.** N ≥ 1 tensors are supported, following
+the same structure as §4.5 — each role is split independently along
+`scatter_dimension`.
+
+**Consumers need not be producers.** A consumer tile that does not appear
+in `producer_tiles_per_group` simply receives its slice; unlike a partial
+gather or reduce there is nothing for a non-producing consumer to
+contribute or miss, so no coverage obligation arises. For a pure split the
+consumer set is therefore unconstrained relative to the producer set —
+resolving, for scatter, the general question of whether a consumer must
+also be a producer.
+
+Synchronization follows the shared model in §8: the def-use edge from
+`ktdp.inter_tile_produce` orders production before delivery. With a single
+producer per group the wait is unconditional — every consumer waits for
+that one producer — so there is no per-tile mode to select.
+
+---
+
+## 8. Synchronization model
 
 No explicit barriers appear in the IR. The `!ktdp.tile_future<T_p, #groups>`
 SSA value carries **per-tile availability signals** rather than a monolithic
@@ -497,9 +592,9 @@ mode.
 
 ---
 
-## 8. Coverage of inter-core communication patterns
+## 9. Coverage of inter-core communication patterns
 
-These five ops are sufficient to express all four inter-core
+These six ops are sufficient to express all five inter-core
 communication patterns:
 
 | Pattern | `inter_tile_produce` | Delivery op | Split/assemble dim |
@@ -508,12 +603,13 @@ communication patterns:
 | Reduce | all tiles per group | `inter_tile_reduce` | — |
 | Reduce-scatter | all tiles per group | `inter_tile_reduce_scatter` | `scatter_dimension` |
 | Gather | all tiles per group | `inter_tile_gather` | `gather_dimension` |
+| Scatter | one producer tile per group | `inter_tile_scatter` | `scatter_dimension` |
 
 ---
 
-## 9. Pattern instantiation
+## 10. Pattern instantiation
 
-### 9.1 Broadcast  →  `inter_tile_produce` + `inter_tile_consume`
+### 10.1 Broadcast  →  `inter_tile_produce` + `inter_tile_consume`
 
 ```mlir
 // 4 tiles, 1 group: tile 0 loads W; all 4 tiles compute.
@@ -543,7 +639,7 @@ communication patterns:
 ktdp.store %C, ...
 ```
 
-### 9.2 Reduce  →  `inter_tile_produce` + `inter_tile_reduce`
+### 10.2 Reduce  →  `inter_tile_produce` + `inter_tile_reduce`
 
 ```mlir
 // 4 tiles per group, 8 groups (32 tiles total).
@@ -571,7 +667,7 @@ ktdp.store %C, ...
 }
 ```
 
-#### 9.2.1 Full IR — single-group reduce (96×64)
+#### 10.2.1 Full IR — single-group reduce (96×64)
 
 **Layout and partitioning.** `A` and `B` are `tensor<96x64xf16>` in global memory.
 The kernel computes the column-wise sum of `A + B`, producing a
@@ -688,7 +784,7 @@ module {
 }
 ```
 
-#### 9.2.2 Full IR — multi-group reduce (128×8×12×64)
+#### 10.2.2 Full IR — multi-group reduce (128×8×12×64)
 
 **Layout and partitioning.** `A` and `B` are `tensor<128x8x12x64xf16>` in
 global memory. The four axes have distinct roles:
@@ -852,7 +948,7 @@ module {
 }
 ```
 
-### 9.3 Reduce-scatter  →  `inter_tile_produce` + `inter_tile_reduce_scatter`
+### 10.3 Reduce-scatter  →  `inter_tile_produce` + `inter_tile_reduce_scatter`
 
 ```mlir
 // 4 tiles per group, 8 groups (32 tiles total).
@@ -883,7 +979,7 @@ module {
 // Each tile holds a different slice — ownership explicit via SSA result.
 ```
 
-#### 9.3.1 Full IR — multi-group reduce-scatter (128×8×12×64)
+#### 10.3.1 Full IR — multi-group reduce-scatter (128×8×12×64)
 
 **Layout and partitioning.** `A` and `B` are `tensor<128x8x12x64xf16>`
 in global memory. The four axes have distinct roles:
@@ -898,7 +994,7 @@ in global memory. The four axes have distinct roles:
 32 tiles, 8 groups of 4. `g = t / 4`, `l = t % 4`. Tile `(g, l)` reads
 slice `[*, g, l*3 : l*3+3, *]` — shape `<128x1x3x64>`. The per-tile
 pipeline through to `%partial_4d` (shape `<128x1x1x64>`) is identical
-to §9.2.2.
+to §10.2.2.
 
 The op reduces dim 2 (within-group tile axis, size 1) and scatters dim 0
 (128 / 4 = 32 rows per tile). Tile `(g, l)` ends up with rows
@@ -1049,9 +1145,9 @@ module {
 }
 ```
 
-### 9.4 Per-tile synchronization  →  `inter_tile_consume` with `producer_dependency_per_consumer`
+### 10.4 Per-tile synchronization  →  `inter_tile_consume` with `producer_dependency_per_consumer`
 
-#### 9.4.1 Per-tile pairing within a single group
+#### 10.4.1 Per-tile pairing within a single group
 
 Four tiles per group: tiles `4g` and `4g+1` are producers, tiles `4g+2`
 and `4g+3` are consumers. Each consumer depends on its dedicated producer
@@ -1093,7 +1189,7 @@ both producers finish. With it, each consumer stalls only for its own
 producer, halving the worst-case wait when the two producers finish at
 different times.
 
-#### 9.4.2 Butterfly mirror exchange across multiple groups
+#### 10.4.2 Butterfly mirror exchange across multiple groups
 
 Eight groups of 4 tiles; all 4 tiles in each group both produce and
 consume. Tile `c = 4g + l` waits only for its mirror partner
@@ -1145,7 +1241,7 @@ eliminated).
     : !ktdp.tile_future<tensor<64xf16>, #all_groups> -> tensor<64xf16>
 ```
 
-### 9.5 Gather  →  `inter_tile_produce` + `inter_tile_gather`
+### 10.5 Gather  →  `inter_tile_produce` + `inter_tile_gather`
 
 ```mlir
 // 4 tiles per group, 8 groups (32 tiles total).
@@ -1172,7 +1268,7 @@ eliminated).
 // The consumer holds the full assembled tensor — ownership via SSA result.
 ```
 
-#### 9.5.1 Full IR — multi-group gather (128×8×12×64)
+#### 10.5.1 Full IR — multi-group gather (128×8×12×64)
 
 **Layout and partitioning.** `A` and `B` are `tensor<128x8x12x64xf16>` in
 HBM. The four axes have distinct roles:
@@ -1301,9 +1397,160 @@ module {
 }
 ```
 
+### 10.6 Scatter  →  `inter_tile_produce` + `inter_tile_scatter`
+
+```mlir
+// 4 tiles per group, 8 groups (32 tiles total).
+#group_producer  = affine_set<(i)[g] : (i - 4*g == 0)>
+#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+
+// One producer per group (tile 4g) holds the whole 128-row tensor.
+%whole_future = ktdp.inter_tile_produce
+    producer_tiles_per_group = #group_producer
+    : tensor<128x1x64xf16> -> !ktdp.tile_future<tensor<128x1x64xf16>, #all_groups>
+{
+  ^bb0(%gid: index):
+    ktdp.yield_partial %whole : tensor<128x1x64xf16>
+}
+
+// Scatter along dim 0; the four tiles per group each receive one 32-row
+// chunk. No combiner, no identity — placement is by within-group local
+// index. scatter_dimension = 0 → 128 / 4 = 32; each consumer gets <32x1x64>.
+%chunk = ktdp.inter_tile_scatter(%whole_future)
+    consumer_tiles_per_group = #all_group_tiles,
+    scatter_dimension        = 0
+    : !ktdp.tile_future<tensor<128x1x64xf16>, #all_groups> -> tensor<32x1x64xf16>
+// Each consumer holds its own 32-row slice — ownership via SSA result.
+```
+
+#### 10.6.1 Full IR — multi-group scatter (128×8×64)
+
+**Layout and partitioning.** `A` and `B` are `tensor<128x8x64xf16>` in
+HBM. The three axes have distinct roles:
+
+- Dim 0 (size 128): the **scatter axis** — the producer's 128 rows are
+  split into 4 chunks of 32, one per consumer tile.
+- Dim 1 (size 8): the **group axis** — 8 groups.
+- Dim 2 (size 64): vector / stick axis, preserved.
+
+32 tiles, 8 groups of 4. `g = t / 4`, `l = t % 4`. Per group, the single
+producer tile `4g` reads its group's whole slab `A[*, g, *]` /
+`B[*, g, *]` — shape `<128x1x64>` — sums them, and produces the summed
+tensor. Scatter along dim 0 delivers chunk `[l*32 : l*32+32, *, *]` to the
+consumer with within-group local index `l`, which writes its `<32x1x64>`
+slice back to `E[l*32 : l*32+32, g, *]`.
+
+```mlir
+#A_view_set = affine_set<(d0, d1, d2) :
+    (d0 >= 0, -d0 + 127 >= 0,
+     d1 >= 0, -d1 + 7   >= 0,
+     d2 >= 0, -d2 + 63  >= 0)>
+
+// Producer partial: the whole 128-row slab of one group, anchored at [0, g, 0].
+#whole_tile_set = affine_set<(d0, d1, d2) :
+    (d0 >= 0, -d0 + 127 >= 0,
+     d1 == 0,
+     d2 >= 0, -d2 + 63  >= 0)>
+
+// Consumer chunk: 32 rows, anchored at [l*32, g, 0].
+#chunk_tile_set = affine_set<(d0, d1, d2) :
+    (d0 >= 0, -d0 + 31 >= 0,
+     d1 == 0,
+     d2 >= 0, -d2 + 63 >= 0)>
+
+#identity_3d = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+
+#group_producer  = affine_set<(i)[g] : (i - 4*g == 0)>
+#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+
+module {
+  func.func @inter_tile_scatter_multi_group() {
+    %c0 = arith.constant 0 : index
+    %c4 = arith.constant 4 : index
+    %row_chunk = arith.constant 32 : index   // 128 / 4
+
+    %A_start = arith.constant 1024    : index
+    %B_start = arith.constant 1049600 : index
+    %E_start = arith.constant 2098176 : index
+
+    %A_view = ktdp.construct_memory_view %A_start, sizes: [128, 8, 64],
+        strides: [512, 64, 1] {
+        coordinate_set = #A_view_set,
+        memory_space   = #ktdp.spyre_memory_space<HBM>
+    } : memref<128x8x64xf16>
+    %B_view = ktdp.construct_memory_view %B_start, sizes: [128, 8, 64],
+        strides: [512, 64, 1] {
+        coordinate_set = #A_view_set,
+        memory_space   = #ktdp.spyre_memory_space<HBM>
+    } : memref<128x8x64xf16>
+
+    %t = ktdp.get_compute_tile_id : index
+    %g = arith.divui %t, %c4 : index
+    %l = arith.remui %t, %c4 : index
+
+    // Produce: only the group's producer tile (4g) runs this region; it
+    // reads and sums its group's whole 128-row slab.
+    %whole_future = ktdp.inter_tile_produce
+        producer_tiles_per_group = #group_producer
+        : tensor<128x1x64xf16>
+          -> !ktdp.tile_future<tensor<128x1x64xf16>, #all_groups>
+    {
+      ^bb0(%gid: index):
+        %A_access = ktdp.construct_access_tile %A_view[%c0, %gid, %c0] {
+            access_tile_set = #whole_tile_set, access_tile_order = #identity_3d
+        } : memref<128x8x64xf16> -> !ktdp.access_tile<128x1x64xindex>
+        %B_access = ktdp.construct_access_tile %B_view[%c0, %gid, %c0] {
+            access_tile_set = #whole_tile_set, access_tile_order = #identity_3d
+        } : memref<128x8x64xf16> -> !ktdp.access_tile<128x1x64xindex>
+
+        %A_tile = ktdp.load %A_access
+                    : !ktdp.access_tile<128x1x64xindex> -> tensor<128x1x64xf16>
+        %B_tile = ktdp.load %B_access
+                    : !ktdp.access_tile<128x1x64xindex> -> tensor<128x1x64xf16>
+
+        %AB_init = tensor.empty() : tensor<128x1x64xf16>
+        %whole = linalg.add ins(%A_tile, %B_tile
+                                : tensor<128x1x64xf16>, tensor<128x1x64xf16>)
+                            outs(%AB_init : tensor<128x1x64xf16>)
+                            -> tensor<128x1x64xf16>
+        ktdp.yield_partial %whole : tensor<128x1x64xf16>
+    }
+
+    // Scatter dim 0: 128 / 4 = 32. Each of the four consumer tiles per group
+    // receives one 32-row chunk. No combiner region, no identity.
+    %chunk = ktdp.inter_tile_scatter(%whole_future)
+        consumer_tiles_per_group = #all_group_tiles,
+        scatter_dimension        = 0
+        : !ktdp.tile_future<tensor<128x1x64xf16>, #all_groups>
+          -> tensor<32x1x64xf16>
+
+    // Post-scatter: consumer (g, l) writes its 32-row chunk to
+    // E[l*32 : l*32+32, g, *]. Ownership is explicit via the def-use chain.
+    %row_anchor = arith.muli %l, %row_chunk : index
+
+    %E_view = ktdp.construct_memory_view %E_start, sizes: [128, 8, 64],
+        strides: [512, 64, 1] {
+        coordinate_set = #A_view_set,
+        memory_space   = #ktdp.spyre_memory_space<HBM>
+    } : memref<128x8x64xf16>
+
+    %E_access = ktdp.construct_access_tile %E_view[%row_anchor, %g, %c0] {
+        access_tile_set = #chunk_tile_set, access_tile_order = #identity_3d
+    } : memref<128x8x64xf16> -> !ktdp.access_tile<32x1x64xindex>
+
+    ktdp.store %chunk, %E_access
+              : tensor<32x1x64xf16>, !ktdp.access_tile<32x1x64xindex>
+
+    return
+  }
+}
+```
+
 ---
 
-## 10. Relationship to existing ops
+## 11. Relationship to existing ops
 
 | Existing op | Maps to in this design |
 |-------------|------------------------|
@@ -1312,33 +1559,26 @@ module {
 | `inter_tile_reduce` | `ktdp.inter_tile_produce` + `ktdp.inter_tile_reduce` — producer block removed from the reduction op |
 | `inter_tile_reduce_scatter` | `ktdp.inter_tile_produce` + `ktdp.inter_tile_reduce_scatter` — producer block removed from the reduction op |
 
-`ktdp.inter_tile_gather` (§6) has no pre-existing counterpart — it is new
-in this design; the earlier ops offered no ordered-concatenation delivery.
+`ktdp.inter_tile_gather` (§6) and `ktdp.inter_tile_scatter` (§7) have no
+pre-existing counterparts — both are new in this design; the earlier ops
+offered neither ordered-concatenation delivery (gather) nor
+single-producer ordered-partition delivery (scatter).
 
 The `!ktdp.tile_future<T, #groups>` type is shared across all ops; its
 `#groups` parameter carries the group set (§1).
 
 The previous `ktdp.inter_tile` single op (Approach B draft) is replaced
-by this five-op design: `ktdp.inter_tile` had producer and optional
+by this six-op design: `ktdp.inter_tile` had producer and optional
 combiner regions in one op with `consumer_tiles_per_group` determining
-delivery mode. The five-op design makes production and delivery explicitly
+delivery mode. The six-op design makes production and delivery explicitly
 separate ops, with the delivery mode determined by which delivery op is
 chosen rather than by attribute combinations.
 
 ---
 
-## 11. Open questions
+## 12. Open questions
 
-**Q1. `consumer_tiles` ⊄ `producer_tiles`?**
-A tile in `consumer_tiles_per_group` but not in `producer_tiles_per_group`
-has no partial to contribute — it would receive the reduced result without
-participating in the reduction, implying an implicit identity contribution.
-Whether this is allowed and whether identity injection is implicit or must
-be explicit in the producer block is still open. The inverse direction
-(producer tile outside the consumer set) is explicitly supported: see the
-reduce-to-one and reduce-to-subset cases in §4.1.
-
-**Q2. Multi-tensor generalization.**
+**Q1. Multi-tensor generalization.**
 The existing ops support variadic partials (N ≥ 1 for argmax-style
 reductions). The ops here should carry the same variadic structure.
 For N = 2 (argmax): two identities, two `ktdp.yield_partial` operands in
@@ -1346,7 +1586,7 @@ the produce block, four combiner arguments yielding two values, two
 delivery op results. Each result follows the same per-op type rules
 independently.
 
-**Q3. Consume placement.**
+**Q2. Consume placement.**
 Whether the verifier should enforce that delivery ops appear only inside
 a guard matching `consumer_tiles_per_group`, or whether this is left to
 lowering. If the union of consumer sets equals the set of all executing
@@ -1355,9 +1595,9 @@ reaches the delivery op would be a verifier error.
 
 ---
 
-## 12. Possible extensions
+## 13. Possible extensions
 
-### 12.1 Multiple delivery ops per future
+### 13.1 Multiple delivery ops per future
 
 The current spec restricts a `!ktdp.tile_future<T, #groups>` value to
 exactly one delivery op use. A natural extension would allow multiple delivery
@@ -1399,42 +1639,7 @@ requires separate `ktdp.inter_tile_produce` ops for separate delivery
 concerns. If future use cases demonstrate a clear need for the shared
 production pattern, this restriction can be relaxed.
 
-### 12.2 Scatter — `ktdp.inter_tile_scatter` (new op)
-
-**Why the current design can represent scatter, but awkwardly.**
-Scatter sends a different slice of a single producer's tensor to each
-consumer tile. This is expressible today using `inter_tile_reduce_scatter`
-with a single producer per group and a trivial identity combiner: the
-reduce over one partial is the partial itself, and the scatter then
-distributes slices to consumers. However, this encoding has three
-ergonomic problems:
-
-1. The partial type must carry an artificial unit within-group tile axis
-   (e.g., `tensor<1 x 128 x 64>` instead of `tensor<128 x 64>`) because
-   `inter_tile_reduce_scatter` expects a reducible tile axis to collapse.
-2. A combiner region must be provided even though it is never meaningfully
-   invoked; any pure combiner with the correct types satisfies the
-   verifier, but the requirement is misleading.
-3. The op name `inter_tile_reduce_scatter` suggests reduction is taking
-   place, obscuring the actual intent.
-
-**Candidate op.**
-
-```mlir
-%my_slice = ktdp.inter_tile_scatter(%future)
-    consumer_tiles_per_group = <affine-set>,
-    scatter_dimension        = <i64>
-    : !ktdp.tile_future<T_p, #groups> -> T_s
-```
-
-**Type rule.** `T_s` is `T_p` with the size along `scatter_dimension`
-divided by `|consumer tiles per group|`. Consumer tile with within-group
-local index `l` receives slice `[l*chunk : (l+1)*chunk]` along
-`scatter_dimension`, where `chunk = T_p[scatter_dimension] / |consumer
-tiles per group|`. The size along `scatter_dimension` must be divisible
-by the per-group consumer-tile count.
-
-### 12.3 Summary of operation coverage
+### 13.2 Summary of operation coverage
 
 | Pattern | Producers per group | Delivery op | Result per consumer |
 |---------|--------------------|-----------------------------|---------------------|
@@ -1444,7 +1649,4 @@ by the per-group consumer-tile count.
 | Gather | N | `inter_tile_gather` | full assembled tensor |
 | Scatter | 1 | `inter_tile_scatter` | 1/N slice of full |
 
-All rows except **Scatter** are first-class ops in this design (§2–§6).
-Scatter remains a candidate extension (§12.2): it is expressible today via
-`inter_tile_reduce_scatter` with a single producer, so it earns a dedicated
-op only if the ergonomic problems above prove worth a new op.
+All rows are first-class ops in this design (§2–§7).
