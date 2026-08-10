@@ -42,8 +42,8 @@ jobs:
 
   # ── CMake build + lit tests (MLIR + Python) ───────────────────────────────
 
-  cmake-test:
-    name: cmake-test (${{ matrix.config.runner }})
+  cmake-py-test:
+    name: cmake-py-test (${{ matrix.config.runner }})
     runs-on: ${{ matrix.config.runs-on }}
 
     strategy:
