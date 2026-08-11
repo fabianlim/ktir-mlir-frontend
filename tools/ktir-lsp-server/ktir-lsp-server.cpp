@@ -13,7 +13,7 @@ using namespace mlir;
 
 auto main(int argc, char **argv) -> int {
   DialectRegistry registry;
-  registry.insert<ktdp::KtdpDialect>();
+  registry.insert<ktdp::KTDPDialect>();
   registerAllDialects(registry);
   registerAllExtensions(registry);
 

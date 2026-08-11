@@ -16,7 +16,7 @@ auto main(int argc, char **argv) -> int {
   registerAllPasses();
 
   DialectRegistry registry;
-  registry.insert<ktdp::KtdpDialect>();
+  registry.insert<ktdp::KTDPDialect>();
   registerAllDialects(registry);
   registerAllExtensions(registry);
 
