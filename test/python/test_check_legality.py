@@ -19,11 +19,11 @@ from mlir_ktdp.passmanager import PassManager
 from mlir_ktdp.tools import ktdp_context
 from mlir_ktdp._mlir_libs._ktir import register_passes
 
-# Register KTDP passes so the "ktdp-check-legality" pipeline is known to
+# Register KTDP passes so the "ktir-check-legality" pipeline is known to
 # PassManager.parse.
 register_passes()
 
-CHECK_LEGALITY_PIPELINE = "builtin.module(ktdp-check-legality)"
+CHECK_LEGALITY_PIPELINE = "builtin.module(ktir-check-legality)"
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ def check_invalid(source):
             pm.run(mod.operation)
         except Exception:
             raised = True
-        assert raised, "expected ktdp-check-legality to fail"
+        assert raised, "expected ktir-check-legality to fail"
 
 
 check_valid(VALID_ALL_REDUCE)

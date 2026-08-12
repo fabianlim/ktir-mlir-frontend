@@ -1,4 +1,4 @@
-// RUN: ktir-opt --ktdp-check-legality --split-input-file --verify-diagnostics %s
+// RUN: ktir-opt --ktir-check-legality --split-input-file --verify-diagnostics %s
 
 // Single-use invariant (§2.3): future must have exactly one use.
 

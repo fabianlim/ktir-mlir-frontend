@@ -42,10 +42,10 @@ MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetGranularity(MlirType t);
 /// Returns the upperbound, or -1 if not set.
 MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t);
 
-/// Register all KTDP passes with the global pass registry.  This must be
+/// Register all KTIR passes with the global pass registry.  This must be
 /// called through the shared CAPI aggregate library so that passes land in the
 /// same PassRegistry that PassManager pipeline parsing consults.
-MLIR_CAPI_EXPORTED void mlirKTDPRegisterPasses(void);
+MLIR_CAPI_EXPORTED void mlirKTIRRegisterPasses(void);
 
 #ifdef __cplusplus
 }

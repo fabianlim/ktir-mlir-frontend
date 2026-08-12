@@ -23,7 +23,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "KTDPInterTileHelpers.h"
+#include "ktir/Dialect/KTDP/KTDPInterTileHelpers.h"
 #include "llvm/ADT/DenseSet.h"
 #include "mlir/Analysis/FlatLinearValueConstraints.h"
 #include "mlir/Analysis/Presburger/IntegerRelation.h"

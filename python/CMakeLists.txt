@@ -67,7 +67,6 @@ declare_mlir_python_extension(KTIRPythonExtensions.Main
     LLVMSupport
 )
 
-
 if(MLIR_PYTHON_STUBGEN_ENABLED)
   add_ktir_python_type_stubs(KTIRPythonExtensions.Main
     ADD_TO_PARENT KTIRPythonSources.type_stubs

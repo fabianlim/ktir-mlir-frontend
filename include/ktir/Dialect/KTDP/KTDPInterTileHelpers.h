@@ -17,14 +17,14 @@
 //===----------------------------------------------------------------------===//
 //
 // Pure-enumeration helpers shared between the KtdpOps verifier and the
-// KtdpCheckLegality pass.  We enumerate concrete integer points rather than
+// KTIRCheckLegality pass.  We enumerate concrete integer points rather than
 // using Presburger set operations; see the comment in KtdpOps.cpp for the
 // trade-offs vs. the pure-Presburger Option A approach.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LIB_DIALECT_KTDP_KTDPINTERTILEHELPERS_H
-#define LIB_DIALECT_KTDP_KTDPINTERTILEHELPERS_H
+#ifndef KTIR_DIALECT_KTDP_KTDPINTERTILEHELPERS_H
+#define KTIR_DIALECT_KTDP_KTDPINTERTILEHELPERS_H
 
 #include "llvm/ADT/DenseSet.h"
 #include "mlir/IR/IntegerSet.h"
@@ -50,4 +50,4 @@ depTilesOf(mlir::IntegerSet depSet, int64_t cVal, int64_t gVal);
 
 } // namespace mlir::ktdp
 
-#endif // LIB_DIALECT_KTDP_KTDPINTERTILEHELPERS_H
+#endif // KTIR_DIALECT_KTDP_KTDPINTERTILEHELPERS_H

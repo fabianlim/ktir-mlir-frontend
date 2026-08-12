@@ -1,4 +1,4 @@
-// RUN: ktir-opt --ktdp-check-legality %s | FileCheck %s
+// RUN: ktir-opt --ktir-check-legality %s | FileCheck %s
 
 #group_tiles = affine_set<(i)[g] : (i - 32*g >= 0, -i + 32*(g+1) - 1 >= 0)>
 #all_groups  = affine_set<(g) : (g == 0)>

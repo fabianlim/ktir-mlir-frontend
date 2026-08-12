@@ -1,4 +1,4 @@
-//===- KTDPPasses.td - KTDP pass definitions ---------------*- tablegen -*-===//
+//===- Passes.h - KTIR conversion pass registration --------------*- C++ -*-===//
 //
 // Copyright 2026 The KTIR Authors.
 //
@@ -16,19 +16,24 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines passes for the KTDP dialect.
+// This file aggregates the KTIR conversion passes for registration. Include
+// the per-conversion header instead when you need a specific pass or its
+// populate* entry points.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef KTDP_PASSES_TD
-#define KTDP_PASSES_TD
+#ifndef KTIR_CONVERSION_PASSES_H
+#define KTIR_CONVERSION_PASSES_H
 
-include "mlir/Pass/PassBase.td"
+#include "ktir/Conversion/ConvertToKTIR/ConvertToKTIR.h"
 
-def KtdpCheckLegalityPass : Pass<"ktdp-check-legality", "::mlir::ModuleOp"> {
-  let summary = "Verify KTIR legality: static op/dialect constraints via "
-                "ConversionTarget, cross-op inter-tile invariants via IR walk";
-  let dependentDialects = ["::mlir::ktdp::KtdpDialect"];
-}
+namespace ktir {
 
-#endif // KTDP_PASSES_TD
+// Pull in generated pass registration helpers.
+#define GEN_PASS_REGISTRATION
+#include "ktir/Conversion/Passes.h.inc"
+#undef GEN_PASS_REGISTRATION
+
+} // namespace ktir
+
+#endif // KTIR_CONVERSION_PASSES_H

@@ -9,7 +9,7 @@
 #include "ktir-c/Dialect/KTDP.h"
 
 #include "ktir/Dialect/KTDP/KTDPDialect.h"
-#include "ktir/Dialect/KTDP/KTDPPasses.h"
+#include "ktir/Conversion/Passes.h"
 #include "ktir/Dialect/KTDP/KTDPTypes.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Registration.h"
@@ -61,4 +61,4 @@ int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t) {
   return v.has_value() ? v.value() : -1;
 }
 
-void mlirKTDPRegisterPasses(void) { mlir::ktdp::registerKtdpPasses(); }
+void mlirKTIRRegisterPasses(void) { ktir::registerKTIRConversionPasses(); }

@@ -16,7 +16,3 @@ mlir_tablegen(KTDPEnums.cpp.inc -gen-enum-defs)
 mlir_tablegen(KTDPAttrs.h.inc -gen-attrdef-decls -attrdefs-dialect=ktdp)
 mlir_tablegen(KTDPAttrs.cpp.inc -gen-attrdef-defs -attrdefs-dialect=ktdp)
 add_ktir_tablegen_target(KTIRKTDPAttrsIncGen)
-
-set(LLVM_TARGET_DEFINITIONS KTDPPasses.td)
-mlir_tablegen(KTDPPasses.h.inc -gen-pass-decls -name Ktdp)
-add_ktir_tablegen_target(KTIRKTDPPassesIncGen)

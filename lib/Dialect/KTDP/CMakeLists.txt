@@ -29,5 +29,3 @@ add_ktir_library(KTIRKtdpDialect
     MLIRAnalysis
     MLIRPresburger
 )
-
-add_subdirectory(Conversions)

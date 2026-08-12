@@ -22,7 +22,7 @@
 #include "ktir/Dialect/KTDP/KTDP.h"
 
 #include "ktir/Dialect/KTDP/KTDPTypes.h"
-#include "KTDPInterTileHelpers.h"
+#include "ktir/Dialect/KTDP/KTDPInterTileHelpers.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "mlir/Analysis/FlatLinearValueConstraints.h"
@@ -1229,7 +1229,7 @@ LogicalResult RuntimeArgExtractOp::verify() {
 //===----------------------------------------------------------------------===//
 
 // groupValues(), tilesOf(), depTilesOf() are defined in
-// KTDPInterTileHelpers.h (shared with the ktdp-check-legality pass).
+// KTDPInterTileHelpers.h (shared with the ktir-check-legality pass).
 
 // Syntax:
 

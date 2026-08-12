@@ -1,4 +1,4 @@
-//===- KtdpPasses.cpp - KTDP pass implementations ----------------*- C++ -*-===//
+//===- KTIRCheckLegality.cpp - KTIR legality check ---------------*- C++ -*-===//
 //
 // Copyright 2026 The KTIR Authors.
 //
@@ -16,11 +16,11 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements passes for the KTDP dialect (issue #35).
+// This file implements the KTIR legality verification pass (issue #35).
 //
 //===----------------------------------------------------------------------===//
 
-#include "ktir/Dialect/KTDP/KTDPPasses.h"
+#include "ktir/Conversion/ConvertToKTIR/ConvertToKTIR.h"
 #include "ktir/Dialect/KTDP/KTDPDialect.h"
 #include "ktir/Dialect/KTDP/KTDP.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -31,14 +31,14 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "../KTDPInterTileHelpers.h"
+#include "ktir/Dialect/KTDP/KTDPInterTileHelpers.h"
 
-namespace mlir::ktdp {
-#define GEN_PASS_DEF_KTDPCHECKLEGALITYPASS
-#include "ktir/Dialect/KTDP/KTDPPasses.h.inc"
-} // namespace mlir::ktdp
+namespace ktir {
+#define GEN_PASS_DEF_KTIRCHECKLEGALITYPASS
+#include "ktir/Conversion/Passes.h.inc"
+} // namespace ktir
 
-void mlir::ktdp::populateKTIRLegalTarget(mlir::ConversionTarget &target) {
+void ktir::populateKTIRLegalTarget(mlir::ConversionTarget &target) {
   target.addLegalDialect<mlir::ktdp::KtdpDialect>();
   target.addLegalDialect<mlir::arith::ArithDialect>();
   target.addLegalDialect<mlir::func::FuncDialect>();
@@ -49,11 +49,13 @@ void mlir::ktdp::populateKTIRLegalTarget(mlir::ConversionTarget &target) {
   target.addLegalDialect<mlir::tensor::TensorDialect>();
 }
 
-namespace mlir::ktdp {
+namespace ktir {
 namespace {
+using namespace mlir;
+using namespace mlir::ktdp;
 
-struct KtdpCheckLegalityPass
-    : impl::KtdpCheckLegalityPassBase<KtdpCheckLegalityPass> {
+struct KTIRCheckLegalityPass
+    : impl::KTIRCheckLegalityPassBase<KTIRCheckLegalityPass> {
 
   void runOnOperation() override {
     bool failed = false;
@@ -177,4 +179,4 @@ struct KtdpCheckLegalityPass
 };
 
 } // namespace
-} // namespace mlir::ktdp
+} // namespace ktir
