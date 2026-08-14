@@ -128,6 +128,7 @@ jobs:
           cmake -S . -B build -GNinja \
             -DCMAKE_BUILD_TYPE=Release \
             -DKTIR_ENABLE_PYTHON_BINDINGS=ON \
+            -DMLIR_PYTHON_STUBGEN_ENABLED=ON \
             -DPython3_EXECUTABLE=${{ env.PYTHON }} \
             -DPython_EXECUTABLE=${{ env.PYTHON }} \
             -DMLIR_DIR=${{ env.MLIR_DIR }} \

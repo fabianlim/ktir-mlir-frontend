@@ -1,5 +1,10 @@
 [build-system]
-requires = ["scikit-build-core", "nanobind>=2.12.0"]
+# cmake>=4.0 is required: CMake 3.x writes the full target name into the
+# file-API reply filename, and MLIR's mlir_generate_type_stubs() builds a
+# 283-char target name by joining DEPENDS_TARGETS. That overflows NAME_MAX
+# (255), so scikit-build-core fails with ENAMETOOLONG while reading the
+# reply. CMake 4.0.0 truncates the name and relies on the trailing hash.
+requires = ["scikit-build-core", "nanobind>=2.12.0", "cmake>=4.0", "ninja>=1.11"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -31,7 +36,7 @@ MLIR_PYTHON_STUBGEN_ENABLED = "ON"
 
 [dependency-groups]
 # Base build tools for all LLVM builds (stable and nightly).
-llvm-build = ["cmake", "ninja", "sccache"]
+llvm-build = ["cmake>=4.0", "ninja>=1.11", "sccache>=0.8"]
 # numpy<2 is additionally required by check-mlir's Python test suite (nightly only).
 # numpy 2.x causes a dense-element ABI mismatch with MLIR at this LLVM version.
 # Stable builds skip check-mlir, so they use llvm-build directly.
