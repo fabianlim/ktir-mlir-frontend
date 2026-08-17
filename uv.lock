@@ -63,15 +63,15 @@ provides-extras = ["test"]
 
 [package.metadata.requires-dev]
 llvm-build = [
-    { name = "cmake" },
-    { name = "ninja" },
-    { name = "sccache" },
+    { name = "cmake", specifier = ">=4.0" },
+    { name = "ninja", specifier = ">=1.11" },
+    { name = "sccache", specifier = ">=0.8" },
 ]
 llvm-build-nightly = [
-    { name = "cmake" },
-    { name = "ninja" },
+    { name = "cmake", specifier = ">=4.0" },
+    { name = "ninja", specifier = ">=1.11" },
     { name = "numpy", specifier = "<2" },
-    { name = "sccache" },
+    { name = "sccache", specifier = ">=0.8" },
 ]
 
 [[package]]
