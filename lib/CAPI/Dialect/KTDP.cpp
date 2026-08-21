@@ -8,8 +8,9 @@
 
 #include "ktir-c/Dialect/KTDP.h"
 
-#include "ktir/Dialect/KTDP/KTDPDialect.h"
 #include "ktir/Conversion/Passes.h"
+#include "ktir/Dialect/KTDP/KTDPAttrs.h"
+#include "ktir/Dialect/KTDP/KTDPDialect.h"
 #include "ktir/Dialect/KTDP/KTDPTypes.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Registration.h"
@@ -59,6 +60,59 @@ int64_t mlirKTDPRuntimeArgTypeGetGranularity(MlirType t) {
 int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t) {
   auto v = llvm::cast<mlir::ktdp::RuntimeArgType>(unwrap(t)).getUpperbound();
   return v.has_value() ? v.value() : -1;
+}
+
+//===----------------------------------------------------------------------===//
+// MemorySpaceAttr
+//===----------------------------------------------------------------------===//
+
+static mlir::ktdp::MemorySpaceKind
+unwrapMemorySpaceKind(MlirKTDPMemorySpaceKind kind) {
+  switch (kind) {
+  case MlirKTDPMemorySpaceKindGlobal:
+    return mlir::ktdp::MemorySpaceKind::global;
+  case MlirKTDPMemorySpaceKindCTLocal:
+    return mlir::ktdp::MemorySpaceKind::ct_local;
+  }
+  llvm_unreachable("unhandled MlirKTDPMemorySpaceKind");
+}
+
+static MlirKTDPMemorySpaceKind
+wrapMemorySpaceKind(mlir::ktdp::MemorySpaceKind kind) {
+  switch (kind) {
+  case mlir::ktdp::MemorySpaceKind::global:
+    return MlirKTDPMemorySpaceKindGlobal;
+  case mlir::ktdp::MemorySpaceKind::ct_local:
+    return MlirKTDPMemorySpaceKindCTLocal;
+  }
+  llvm_unreachable("unhandled mlir::ktdp::MemorySpaceKind");
+}
+
+MlirAttribute mlirKTDPMemorySpaceAttrGet(MlirContext ctx,
+                                         MlirKTDPMemorySpaceKind kind,
+                                         int32_t ctId) {
+  // getChecked so an invalid combination (e.g. ct_id on global) surfaces as a
+  // diagnostic and a null attribute rather than tripping an assertion.
+  return wrap(mlir::ktdp::MemorySpaceAttr::getChecked(
+      mlir::UnknownLoc::get(unwrap(ctx)), unwrap(ctx),
+      unwrapMemorySpaceKind(kind), ctId));
+}
+
+bool mlirAttributeIsAKTDPMemorySpaceAttr(MlirAttribute attr) {
+  return llvm::isa<mlir::ktdp::MemorySpaceAttr>(unwrap(attr));
+}
+
+MlirTypeID mlirKTDPMemorySpaceAttrGetTypeID() {
+  return wrap(mlir::ktdp::MemorySpaceAttr::getTypeID());
+}
+
+MlirKTDPMemorySpaceKind mlirKTDPMemorySpaceAttrGetKind(MlirAttribute attr) {
+  return wrapMemorySpaceKind(
+      llvm::cast<mlir::ktdp::MemorySpaceAttr>(unwrap(attr)).getKind());
+}
+
+int32_t mlirKTDPMemorySpaceAttrGetCtId(MlirAttribute attr) {
+  return llvm::cast<mlir::ktdp::MemorySpaceAttr>(unwrap(attr)).getCtId();
 }
 
 void mlirKTIRRegisterPasses(void) { ktir::registerKTIRConversionPasses(); }

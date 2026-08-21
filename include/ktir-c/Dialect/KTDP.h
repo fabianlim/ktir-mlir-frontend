@@ -42,6 +42,33 @@ MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetGranularity(MlirType t);
 /// Returns the upperbound, or -1 if not set.
 MLIR_CAPI_EXPORTED int64_t mlirKTDPRuntimeArgTypeGetUpperbound(MlirType t);
 
+//===----------------------------------------------------------------------===//
+// MemorySpaceAttr
+//===----------------------------------------------------------------------===//
+
+/// Values must stay in sync with `mlir::ktdp::MemorySpaceKind` (KTDPAttrs.td).
+enum MlirKTDPMemorySpaceKind {
+  MlirKTDPMemorySpaceKindGlobal = 0,
+  MlirKTDPMemorySpaceKindCTLocal = 1,
+};
+
+/// Builds a `#ktdp.memory_space<...>` attribute. Pass -1 for `ctId` to leave
+/// the compute-tile ID unspecified. Emits a diagnostic and returns a null
+/// attribute if the parameters fail verification (e.g. a `ctId` on `global`).
+MLIR_CAPI_EXPORTED MlirAttribute
+mlirKTDPMemorySpaceAttrGet(MlirContext ctx, enum MlirKTDPMemorySpaceKind kind,
+                           int32_t ctId);
+
+MLIR_CAPI_EXPORTED bool mlirAttributeIsAKTDPMemorySpaceAttr(MlirAttribute attr);
+
+MLIR_CAPI_EXPORTED MlirTypeID mlirKTDPMemorySpaceAttrGetTypeID(void);
+
+MLIR_CAPI_EXPORTED enum MlirKTDPMemorySpaceKind
+mlirKTDPMemorySpaceAttrGetKind(MlirAttribute attr);
+
+/// Returns the compute-tile ID, or -1 if unspecified.
+MLIR_CAPI_EXPORTED int32_t mlirKTDPMemorySpaceAttrGetCtId(MlirAttribute attr);
+
 /// Register all KTIR passes with the global pass registry.  This must be
 /// called through the shared CAPI aggregate library so that passes land in the
 /// same PassRegistry that PassManager pipeline parsing consults.

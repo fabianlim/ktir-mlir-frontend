@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from mlir_ktdp.ir import Context, Module
+
+# Build output, absent from this source tree; does not resolve here.
+from mlir_ktdp.ir import Context, Module  # type: ignore[import-not-found]
 import mlir_ktdp.dialects.ktdp as ktdp
 
 
 @contextmanager
-def ktdp_context():
+def ktdp_context() -> Iterator["Context"]:
     """Context manager that creates an MLIR context with KTDP dialects registered."""
     with Context() as ctx:
         ktdp.register_dialects(ctx)

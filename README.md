@@ -27,6 +27,26 @@ Custom types: `!ktdp.access_tile<NxMxindex>`, `!ktdp.runtime_arg<type, granulari
 
 Memory spaces: `#ktdp.memory_space<global>`, `#ktdp.memory_space<ct_local>`, `#ktdp.memory_space<ct_local, ct_id=7>`
 
+### Building attributes and types from Python
+
+The bindings expose builders for the custom types and attributes, so IR is
+constructed through verifier-checked APIs rather than assembled as text:
+
+```python
+import mlir_ktdp.dialects.ktdp as ktdp
+
+# #ktdp.memory_space<global>
+ktdp.MemorySpaceAttr.get(ktdp.MemorySpaceKind.global_)
+
+# #ktdp.memory_space<ct_local, ct_id = 7>
+ktdp.MemorySpaceAttr.get(ktdp.MemorySpaceKind.ct_local, ct_id=7)
+```
+
+`kind` takes (and reads back) the tablegen-generated `MemorySpaceKind` enum —
+note the trailing underscore on `global_`, since `global` is a Python keyword.
+`ct_id` is optional and only valid for `ct_local`; an invalid combination
+raises `ir.MLIRError` carrying the verifier diagnostic.
+
 ## How to Build
 
 ### Prerequisites

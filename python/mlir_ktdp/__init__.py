@@ -12,5 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .ir import *  # e.g., Context, Module, Location, Block
+# Build output, absent from this source tree; does not resolve here.
+from .ir import *  # type: ignore[import-not-found]  # e.g., Context, Module, Location, Block
 from .dialects import ktdp

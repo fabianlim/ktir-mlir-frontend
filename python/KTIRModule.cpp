@@ -17,8 +17,14 @@
 #include "mlir/Bindings/Python/IRCore.h"
 #include "mlir/Bindings/Python/IRTypes.h"
 
+#include "Utils.h"
+
 namespace nb = nanobind;
 namespace py = mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN;
+
+// Bind the C-API memory-space enum to the tablegen-generated
+// `mlir_ktdp.dialects.ktdp.MemorySpaceKind` IntEnum.
+KTIR_IMPORT_INT_ENUM_TYPECASTER(MlirKTDPMemorySpaceKind, ktdp, MemorySpaceKind);
 
 namespace mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::ktdp {
 
@@ -82,6 +88,42 @@ struct PyRuntimeArgType : PyConcreteType<PyRuntimeArgType, PyType> {
   }
 };
 
+struct PyMemorySpaceAttr : PyConcreteAttribute<PyMemorySpaceAttr> {
+  static constexpr IsAFunctionTy isaFunction = mlirAttributeIsAKTDPMemorySpaceAttr;
+  static constexpr GetTypeIDFunctionTy getTypeIdFunction =
+      mlirKTDPMemorySpaceAttrGetTypeID;
+  static constexpr const char *pyClassName = "MemorySpaceAttr";
+  using PyConcreteAttribute::PyConcreteAttribute;
+
+  static void bindDerived(ClassTy &c) {
+    c.def_static(
+        "get",
+        [](MlirKTDPMemorySpaceKind kind, std::optional<int32_t> ctId,
+              DefaultingPyMlirContext context) {
+          // ct_id is only valid for ct_local; let the attribute verifier
+          // reject the invalid combinations rather than duplicating it here.
+          // getChecked emits a diagnostic and returns null on failure, so
+          // capture it and surface it as ir.MLIRError.
+          PyMlirContextRef ctxRef = context->getRef();
+          PyMlirContext::ErrorCapture errors(ctxRef);
+          MlirAttribute attr = mlirKTDPMemorySpaceAttrGet(
+              ctxRef->get(), kind, ctId.value_or(-1));
+          if (mlirAttributeIsNull(attr))
+            throw MLIRError("Invalid memory space attribute", errors.take());
+          return PyMemorySpaceAttr(ctxRef, attr);
+        },
+        nb::arg("kind"), nb::arg("ct_id") = nb::none(),
+        nb::arg("context") = nb::none());
+    c.def_prop_ro("kind", [](PyMemorySpaceAttr &self) {
+      return mlirKTDPMemorySpaceAttrGetKind(self);
+    });
+    c.def_prop_ro("ct_id", [](PyMemorySpaceAttr &self) -> std::optional<int32_t> {
+      int32_t v = mlirKTDPMemorySpaceAttrGetCtId(self);
+      return v >= 0 ? std::optional<int32_t>(v) : std::nullopt;
+    });
+  }
+};
+
 } // namespace mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::ktdp
 
 //===----------------------------------------------------------------------===//
@@ -124,4 +166,5 @@ NB_MODULE(_ktir, m) {
   auto ktdp = m.def_submodule("ktdp");
   py::ktdp::PyAccessTileType::bind(ktdp);
   py::ktdp::PyRuntimeArgType::bind(ktdp);
+  py::ktdp::PyMemorySpaceAttr::bind(ktdp);
 }
