@@ -101,11 +101,16 @@ wrapMemorySpaceKind(mlir::ktdp::MemorySpaceKind kind) {
 MlirAttribute mlirKTDPMemorySpaceAttrGet(MlirContext ctx,
                                          MlirKTDPMemorySpaceKind kind,
                                          int32_t ctId) {
-  // getChecked so an invalid combination (e.g. ct_id on global) surfaces as a
-  // diagnostic and a null attribute rather than tripping an assertion.
+  return wrap(mlir::ktdp::MemorySpaceAttr::get(
+      unwrap(ctx), unwrapMemorySpaceKind(kind), ctId));
+}
+
+MlirAttribute mlirKTDPMemorySpaceAttrGetChecked(MlirLocation loc,
+                                                MlirKTDPMemorySpaceKind kind,
+                                                int32_t ctId) {
   return wrap(mlir::ktdp::MemorySpaceAttr::getChecked(
-      mlir::UnknownLoc::get(unwrap(ctx)), unwrap(ctx),
-      unwrapMemorySpaceKind(kind), ctId));
+      unwrap(loc), unwrap(loc).getContext(), unwrapMemorySpaceKind(kind),
+      ctId));
 }
 
 bool mlirAttributeIsAKTDPMemorySpaceAttr(MlirAttribute attr) {

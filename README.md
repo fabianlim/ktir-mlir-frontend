@@ -47,6 +47,10 @@ note the trailing underscore on `global_`, since `global` is a Python keyword.
 `ct_id` is optional and only valid for `ct_local`; an invalid combination
 raises `ir.MLIRError` carrying the verifier diagnostic.
 
+Like the upstream MLIR type builders, `get` is verified and needs a `Location`,
+taken from the surrounding `with Location...` or an explicit `loc=`. Diagnostics
+are emitted there, so a rejected attribute points at the code that built it.
+
 ## How to Build
 
 ### Prerequisites

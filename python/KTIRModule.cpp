@@ -106,14 +106,27 @@ struct PyMemorySpaceAttr : PyConcreteAttribute<PyMemorySpaceAttr> {
   using PyConcreteAttribute::PyConcreteAttribute;
 
   static void bindDerived(ClassTy &c) {
+    // ct_id is only valid for ct_local; the attribute verifier enforces that
+    // rather than this binding duplicating the rule. Diagnostics are emitted at
+    // `loc`, so failures point at the caller.
     c.def_static(
         "get",
         [](MlirKTDPMemorySpaceKind kind, std::optional<int32_t> ctId,
+              DefaultingPyLocation loc) {
+          PyMlirContext::ErrorCapture errors(loc->getContext());
+          MlirAttribute attr = mlirKTDPMemorySpaceAttrGetChecked(
+              loc, kind, ctId.value_or(-1));
+          if (mlirAttributeIsNull(attr))
+            throw MLIRError("Invalid memory space attribute", errors.take());
+          return PyMemorySpaceAttr(loc->getContext(), attr);
+        },
+        nb::arg("kind"), nb::arg("ct_id") = nb::none(),
+        nb::arg("loc") = nb::none(),
+        "Gets a uniqued ktdp.memory_space attribute");
+    c.def_static(
+        "get_unchecked",
+        [](MlirKTDPMemorySpaceKind kind, std::optional<int32_t> ctId,
               DefaultingPyMlirContext context) {
-          // ct_id is only valid for ct_local; let the attribute verifier
-          // reject the invalid combinations rather than duplicating it here.
-          // getChecked emits a diagnostic and returns null on failure, so
-          // capture it and surface it as ir.MLIRError.
           PyMlirContextRef ctxRef = context->getRef();
           PyMlirContext::ErrorCapture errors(ctxRef);
           MlirAttribute attr = mlirKTDPMemorySpaceAttrGet(
@@ -123,7 +136,8 @@ struct PyMemorySpaceAttr : PyConcreteAttribute<PyMemorySpaceAttr> {
           return PyMemorySpaceAttr(ctxRef, attr);
         },
         nb::arg("kind"), nb::arg("ct_id") = nb::none(),
-        nb::arg("context") = nb::none());
+        nb::arg("context") = nb::none(),
+        "Gets a uniqued ktdp.memory_space attribute");
     c.def_prop_ro("kind", [](PyMemorySpaceAttr &self) {
       return mlirKTDPMemorySpaceAttrGetKind(self);
     });

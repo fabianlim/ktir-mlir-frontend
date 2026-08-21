@@ -19,11 +19,14 @@
 These construct attributes through the bindings rather than by parsing text,
 so a rename of a mnemonic or an enum keyword breaks at the API level instead
 of silently drifting away from a hand-written `#ktdp.…` literal.
+
+`get` is verified and requires a Location (as the upstream MLIR type builders
+do), so these run inside one and the invalid cases assert on the diagnostic.
 """
 
 from typing import TYPE_CHECKING
 
-from mlir_ktdp.ir import Attribute
+from mlir_ktdp.ir import Attribute, Location
 from mlir_ktdp.tools import ktdp_context
 import mlir_ktdp.dialects.ktdp as ktdp
 
@@ -64,7 +67,7 @@ MEMORY_SPACE_INVALID = [
 # Tests
 # ---------------------------------------------------------------------------
 
-with ktdp_context():
+with ktdp_context(), Location.unknown():
     for (kind, ct_id), expected in MEMORY_SPACE_CASES:
         attr = ktdp.MemorySpaceAttr.get(kind, ct_id=ct_id)
         assert str(attr) == expected, f"\nactual:   {attr}\nexpected: {expected}"
@@ -99,3 +102,24 @@ with ktdp_context():
         else:
             raise AssertionError(
                 f"expected MLIRError for kind={kind}, ct_id={ct_id}, got {attr}")
+
+    # An explicit loc= overrides the ambient location, and the diagnostic is
+    # emitted there -- so a bad memory space points at the code that built it
+    # rather than reporting "unknown".
+    loc = Location.file("emitter.py", 42, 5)
+    assert str(ktdp.MemorySpaceAttr.get(MemorySpaceKind.global_, loc=loc)) == \
+        "#ktdp.memory_space<global>"
+    try:
+        ktdp.MemorySpaceAttr.get(MemorySpaceKind.global_, ct_id=3, loc=loc)
+    except MLIRError as e:
+        assert "emitter.py" in str(e), str(e)
+    else:
+        raise AssertionError("expected MLIRError for global with ct_id")
+
+    # get_unchecked skips verification, so it takes a context and no Location.
+    for (kind, ct_id), expected in MEMORY_SPACE_CASES:
+        kwargs = {} if ct_id is None else {"ct_id": ct_id}
+        unchecked = ktdp.MemorySpaceAttr.get_unchecked(kind, **kwargs)
+        assert str(unchecked) == expected, f"{unchecked} != {expected}"
+        assert unchecked == ktdp.MemorySpaceAttr.get(kind, **kwargs), \
+            "get and get_unchecked must agree on valid input"

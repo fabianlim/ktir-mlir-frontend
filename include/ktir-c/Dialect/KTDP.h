@@ -63,11 +63,16 @@ enum MlirKTDPMemorySpaceKind {
 };
 
 /// Builds a `#ktdp.memory_space<...>` attribute. Pass -1 for `ctId` to leave
-/// the compute-tile ID unspecified. Emits a diagnostic and returns a null
-/// attribute if the parameters fail verification (e.g. a `ctId` on `global`).
+/// the compute-tile ID unspecified.
 MLIR_CAPI_EXPORTED MlirAttribute
 mlirKTDPMemorySpaceAttrGet(MlirContext ctx, enum MlirKTDPMemorySpaceKind kind,
                            int32_t ctId);
+
+/// Same as mlirKTDPMemorySpaceAttrGet, but emits a diagnostic at `loc` and
+/// returns a null attribute if the parameters fail verification (e.g. a `ctId`
+/// on `global`) instead of asserting.
+MLIR_CAPI_EXPORTED MlirAttribute mlirKTDPMemorySpaceAttrGetChecked(
+    MlirLocation loc, enum MlirKTDPMemorySpaceKind kind, int32_t ctId);
 
 MLIR_CAPI_EXPORTED bool mlirAttributeIsAKTDPMemorySpaceAttr(MlirAttribute attr);
 
