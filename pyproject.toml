@@ -4,7 +4,14 @@
 # 283-char target name by joining DEPENDS_TARGETS. That overflows NAME_MAX
 # (255), so scikit-build-core fails with ENAMETOOLONG while reading the
 # reply. CMake 4.0.0 truncates the name and relies on the trailing hash.
-requires = ["scikit-build-core", "nanobind>=2.12.0", "cmake>=4.0", "ninja>=1.11"]
+#
+# nanobind<3 is a constraint of the MLIR we pin, not a preference of ours. The
+# bindings are built against the LLVM named in cmake/llvm-hash.txt, and that
+# tree's MLIRDetectPythonEnv.cmake does `find_package(nanobind 2.9 CONFIG
+# REQUIRED)`. CMake reads a bare version as same-major, so nanobind 3.x is
+# rejected outright and the build fails at configure time. The upper bound moves
+# when the LLVM pin moves to an MLIR that asks for 3.x -- not before.
+requires = ["scikit-build-core", "nanobind>=2.12.0,<3", "cmake>=4.0", "ninja>=1.11"]
 build-backend = "scikit_build_core.build"
 
 [project]
