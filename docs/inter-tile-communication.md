@@ -60,6 +60,8 @@ means a tensor or tile axis.
   `replicate` | `concat` | `permute` | `split`.
 - **cardinality** — producer tiles per group × consumer tiles per group.
 
+**Semantics matrix.** One row per delivery op.
+
 | Op | combine | placement | producers/grp | consumers/grp | dim attrs | region | identity |
 |---|---|---|---|---|---|---|---|
 | `consume` | none | replicate | 1 | free | — | — | — |
@@ -102,6 +104,8 @@ The "all-" prefixed patterns are not separate ops: an op whose
 widening `consumer_tiles_per_group`. The consumer set is therefore a
 column here, since it is what distinguishes gather from all-gather and
 all-to-all from scatter.
+
+**Coverage table.** One row per named collective pattern.
 
 | Pattern | Producers/grp | Consumers/grp | Delivery op | Result per consumer |
 |---------|---------------|---------------|-------------|---------------------|
@@ -232,6 +236,8 @@ Everything in this section holds for **every** delivery op. §6 states
 only per-op deltas; where §6 is silent, this section governs.
 
 ### 3.1 Notation
+
+**Symbol table.** These names are used unqualified throughout.
 
 | Symbol | Meaning |
 |---|---|
@@ -393,7 +399,9 @@ per-tile mode.
 Every delivery op produces `N` variadic SSA values, one per
 partial-tensor role. The values are **per-tile-valued**: each consumer
 tile holds its own result value when the op completes. Whether tiles in
-the same group hold the *same* value is a property of the placement:
+the same group hold the *same* value is a property of the placement.
+
+**Sharing table.** One row per placement value.
 
 | placement | tiles in one group hold | tiles in different groups hold |
 |---|---|---|
@@ -418,7 +426,9 @@ role's result type follows the §4 rule independently.
 ## 4. Placement algebra and type rules
 
 Result types are a function of the placement value alone. There are four
-formulas, applied per role `i` to `T_p_i`:
+formulas, applied per role `i` to `T_p_i`.
+
+**Type-rule table.** One row per placement value.
 
 | placement | result type derived from `T_p` |
 |---|---|
@@ -507,8 +517,10 @@ themselves, in this order.
 result has the same element count as `T_p` — one axis is divided and
 another multiplied by the same factor — so a square all-to-all is a pure
 redistribution of ownership. If additionally `split_dimensions == concat_dimensions`,
-the result *type* equals `T_p`: the distributed transpose, which is the
-uniform one-to-one shuffle the SDSC backend emits today (§9).
+the result *type* equals `T_p`: the distributed transpose. That equal-type
+case is not what the SDSC backend emits today — every measured all-to-all
+splits and concats *different* axes (§9.3), so `P == C` conserves the
+element count while the type still changes.
 
 **Why `split` divides an honest data axis.** Every splitting op divides an
 extent of an axis the partial already has, so the types stay honest:
@@ -522,6 +534,8 @@ dimension for a collapse to consume, and none removes one.
 Principle: **each rule has exactly one owner and one statement;
 applicability is a column, not a restatement.** "Owner" is the op that
 carries the attribute the rule constrains.
+
+**Verification matrix.** One row per rule, one column per delivery op.
 
 | Rule | Owner | consume | reduce | red_scat | gather | all_to_all | scatter |
 |---|---|---|---|---|---|---|---|
@@ -1399,6 +1413,8 @@ and `4g+3` are consumers. Each consumer depends on its dedicated producer
 (`4g+2` ← `4g`, `4g+3` ← `4g+1`), so the pairing is `p = c - 2` — a
 constant relative offset that does not depend on the group index `g`.
 
+**Dependency table** for group 0:
+
 | group | producer | consumer |
 |-------|----------|----------|
 | 0     | 0        | 2        |
@@ -1446,6 +1462,8 @@ asking (different consumers within the group have different mirrors), and
 `g` anchors the equation to the group (the target sum `8g + 3` is `3`,
 `11`, `19`, ... for groups `0`, `1`, `2`, ..., so `g` cannot be
 eliminated).
+
+**Dependency table**, first two groups:
 
 | group | producer | consumer |
 |-------|----------|----------|
@@ -1978,6 +1996,8 @@ The legality pass (`lib/Conversion/ConvertToKTIR/KTIRCheckLegality.cpp`,
 182 lines) currently walks only `InterTileProduceOp` and
 `InterTileReduceOp`:
 
+**Implemented-rule table.** One row per check that exists today.
+
 | Rule | Op | Check | Location |
 |---|---|---|---|
 | R2 | `inter_tile_produce` | `future.hasOneUse()` | `KTIRCheckLegality.cpp:80–85` |
@@ -1996,7 +2016,7 @@ the Torch-Spyre SDSC planner (`_compatible_partitions`) but are absent
 from the KTIR verifier entirely — the gap exists at both the spec and the
 implementation level.
 
-**Two asymmetries the §5 matrix forces into the open.**
+**Two asymmetries the verification matrix (§5) forces into the open.**
 
 1. R8 is stated as a verifier obligation for `scatter` but is merely
    conventional for `consume`, even though both ops have the same
@@ -2004,7 +2024,7 @@ implementation level.
    spec asymmetry to decide rather than inherit.
 2. R13 and R14 are implemented for `reduce` only, and R13 is the
    implementation of open question §10.1 (must a consumer also be a
-   producer?) for that one op. The `?` cells in the §5 matrix are exactly
+   producer?) for that one op. The `?` cells in that matrix are exactly
    that question, unresolved: for `scatter` the answer is **no** (§6.6), for
    `reduce` the current answer is **yes** (enforced), and for
    `reduce_scatter` / `gather` / `all_to_all` it is undecided. R14's
@@ -2326,6 +2346,9 @@ somewhere else.
 `ktdp.inter_tile_produce` and `ktdp.inter_tile_reduce`, plus the
 `ktdp.yield_partial` and `ktdp.yield_reduced` terminators. That is all —
 the other five delivery ops are new work, not revisions of existing ops.
+
+**Migration table.** One row per op of this design, with its state in
+`KTDP.td` today.
 
 | Op | Status today | This design |
 |---|---|---|
