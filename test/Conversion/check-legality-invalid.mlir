@@ -68,3 +68,27 @@ func.func @bad_reduce_to_subset(%p: tensor<64xf16>, %id: tensor<64xf16>)
       ktdp.yield_reduced %l : tensor<64xf16> }
   return %r : tensor<64xf16>
 }
+
+// -----
+
+// A dependency set may carry one symbol (c) or two (c, g); three is not a
+// legal spelling.
+
+#ds_prod = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#ds_grp  = affine_set<(g) : (g == 0)>
+#ds_bad  = affine_set<(p)[c, g, x] : (p - c == 0, x >= 0)>
+
+func.func @bad_dep_symbol_count(%p: tensor<64xf16>, %id: tensor<64xf16>)
+    -> tensor<64xf16> {
+  %f = ktdp.inter_tile_produce producer_tiles_per_group = #ds_prod
+      -> <(tensor<64xf16>), groups = #ds_grp>
+  { ^bb0(%gid: index): ktdp.yield_partial %p : tensor<64xf16> }
+  // expected-error @below {{`producer_dependency_per_consumer` must have one symbol (c) or two symbols (c, g)}}
+  %r = ktdp.inter_tile_reduce(%f) consumer_tiles_per_group = #ds_prod,
+      producer_dependency_per_consumer = #ds_bad,
+      identity(%id : tensor<64xf16>)
+      : <(tensor<64xf16>), groups = #ds_grp> -> tensor<64xf16>
+  { ^bb0(%l: tensor<64xf16>, %rr: tensor<64xf16>):
+      ktdp.yield_reduced %l : tensor<64xf16> }
+  return %r : tensor<64xf16>
+}

@@ -132,9 +132,11 @@ struct KTIRCheckLegalityPass
       if (!depAttr) return;
 
       IntegerSet depSet = depAttr.getValue();
-      if (depSet.getNumSymbols() != 2) {
+      // Two symbols (c, g) is the general spelling; one symbol (c) is legal
+      // when the producer/consumer pairing is group-independent.
+      if (depSet.getNumSymbols() != 1 && depSet.getNumSymbols() != 2) {
         reduceOp.emitError("`producer_dependency_per_consumer` must have "
-                           "exactly two symbols (c, g)");
+                           "one symbol (c) or two symbols (c, g)");
         failed = true;
         return;
       }
