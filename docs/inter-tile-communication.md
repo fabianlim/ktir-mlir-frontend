@@ -2047,11 +2047,14 @@ core's **region** is the intersection of its per-axis ranges, and an axis
 absent from an entry is uncut. Classifying a pattern means deciding, from
 those two tables, which delivery op expresses the same movement.
 
-**Coarsened and refined.** Let `Ns(a)` and `Nd(a)` be the number of slices
-axis `a` is cut into at the source and destination (1 if absent). Then `a`
-is **coarsened** when `Ns(a) > Nd(a)` — fewer, larger pieces after the
-move, so data must be *assembled* along it — and **refined** when
-`Nd(a) > Ns(a)`, so data must be *split* along it. Write
+**Coarsened and refined.** Let `Ns(a)` and `Nd(a)` be the number of
+**distinct slices** axis `a` carries in the source and destination tables —
+counted from the slices a table actually contains, never from slices it does
+not: dividing the axis extent by one slice's extent counts pieces no core
+owns. An axis absent from an entry counts 1. Then `a` is **coarsened** when
+`Ns(a) > Nd(a)` — fewer, larger pieces after the move, so data must be
+*assembled* along it — and **refined** when `Nd(a) > Ns(a)`, so data must be
+*split* along it. Write
 
 ```
 C = {a : Ns(a) > Nd(a)}    # coarsened — assemble
@@ -2071,6 +2074,29 @@ core count. And axes must be aligned by **physical axis, not by label** —
 labels differ between the two sides, and this is the only place a wrong
 answer can enter.
 
+**Where the two readings differ.** §9.2 works a pattern forward from slice
+counts already given; this pair shows where those counts come from, on the
+one measured file where counting and dividing disagree. The tensor is
+`512 × 32 × 64` elements, `out` counting sticks. The source divides it 8
+ways on `mb` and 4 ways on `out`; the destination keeps **one** `mb` index —
+the last, `mb[511]` — and spreads that single row over all 32 cores, one
+stick each.
+
+**Ownership tables.** One row per side; core ids run row-major with `mb`
+outermost.
+
+| | slice counts | core 0 | core 28 | per-core type |
+|---|---|---|---|---|
+| src | `{mb:8, out:4}` | `mb[0:64] × out[0:8]` | `mb[448:512] × out[0:8]` | `tensor<64x8x64xf16>` |
+| dst | `{mb:1, out:32}` | `mb[511:512] × out[0:1]` | `mb[511:512] × out[28:29]` | `tensor<1x1x64xf16>` |
+
+Read off the destination table, `mb` carries one distinct slice — every core
+names `mb[511:512]` — so `Nd(mb) = 1` against `Ns(mb) = 8`, and `mb` is
+coarsened; `out` goes the other way, `4` against `32`, so it is refined.
+Divide instead, extent `512` by the slice's extent `1`, and `Nd(mb) = 512`:
+`mb` would come out *refined*, on the strength of 511 pieces the table never
+mentions. Only the first reading is a fact about the tables.
+
 **Axis names versus axis indices.** Axis sets are written below with the
 backend's symbol names (`mb`, `in`, `out`, …), the vocabulary the ownership
 tables speak. The op attributes of §6 are `i64` arrays of *axis indices*
@@ -2082,7 +2108,7 @@ fastest-varying.
 
 | # | condition | result |
 |---|---|---|
-| — | `prod(Ns(a)) != len(src_regions)` or `prod(Nd(a)) != len(dst_regions)` | **not a work-division pair** — enumerate regions instead. Check first |
+| — | `prod(Ns(a)) != len(src_regions)` or `prod(Nd(a)) != len(dst_regions)`, or either side's distinct regions do not cover the tensor | **not a work-division pair** — enumerate regions instead. Check first |
 | — | any axis ragged (non-uniform overlap) | *insufficient information* — no single op has uniform dependency-set cardinality (R6) |
 | 1 | `C = ∅` and `R = ∅` | regions identical: `no op needed` if every core's region is its own, else `inter_tile_consume` — a **relocation**, or a **broadcast** where destination regions are shared |
 | 2 | `C = ∅`, `R ≠ ∅` | `inter_tile_scatter`, `scatter_dimensions = R` |
@@ -2094,6 +2120,24 @@ fixes — which is why they must be list-valued (§1.1). Rows 2–4 return
 *insufficient information* when a source region has several holders, since
 R8 admits one producer per group and the tables do not say which transmits
 (§10.2).
+
+**The coverage clause of the first guard row.** Its other two clauses are
+region counts; this one is a volume — each **distinct** region's element
+count, summed over a side, against the element count of the value being
+delivered. Both qualifications matter. **Distinct**, because summed per
+*core* an all-gather exceeds the tensor by design: the file whose one
+destination region is held by 28 cores (§9.3) would overshoot 28 times over.
+And **the value delivered**, because after a select that is the selected
+sub-tensor and not the original — otherwise the select-then-deliver that
+repairs a selection would trip the guard it was meant to satisfy.
+
+The clause is also the only test in §9 that reads slice **sizes** and the
+tensor shape rather than slice counts, which is why the count clauses cannot
+replace it. On the pair tabled above, `prod(Nd(a)) = 1 × 32 = 32` equals the
+destination region count and `prod(Ns(a)) = 8 × 4 = 32` equals the source's,
+so **both count clauses pass**. Coverage is what fails: the 32 distinct
+destination regions hold one stick each, `32 × 64 = 2048` elements against
+the tensor's `512 × 32 × 64 = 1048576` — a 512th of it.
 
 Row 3's `prod(Nd(a)) == num_cores` is the one irreducibly global test:
 holding the division fixed and varying the core count changes the op, so no
