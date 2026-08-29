@@ -2033,26 +2033,25 @@ module {
 Where the rules of §5 stand in the verifier today. Non-normative: this
 section records the current state, not an obligation.
 
-The legality pass (`lib/Conversion/ConvertToKTIR/KTIRCheckLegality.cpp`,
-182 lines) currently walks only `InterTileProduceOp` and
-`InterTileReduceOp`:
+The legality pass (`lib/Conversion/ConvertToKTIR/KTIRCheckLegality.cpp`)
+walks `InterTileProduceOp`, `InterTileConsumeOp` and `InterTileReduceOp`:
 
 **Implemented-rule table.** One row per check that exists today.
 
 | Rule | Op | Check | Location |
 |---|---|---|---|
-| R2 | `inter_tile_produce` | `future.hasOneUse()` | `KTIRCheckLegality.cpp:80–85` |
-| R13 | `inter_tile_reduce` | `C ⊆ P` per group | `KTIRCheckLegality.cpp:107–117` |
-| R14 | `inter_tile_reduce` | `C == P` or `\|C\| == 1` | `KTIRCheckLegality.cpp:119–128` |
-| R3 | `inter_tile_reduce` | declared dep `p ∈ P(g)` | `KTIRCheckLegality.cpp:151–160` |
-| R4 | `inter_tile_reduce` | every `p` covered by some dep | `KTIRCheckLegality.cpp:163–174` |
+| R2 | `inter_tile_produce` | `future.hasOneUse()` | `KTIRCheckLegality.cpp:128–132` |
+| R13 | `inter_tile_reduce` | `C ⊆ P` per group | `KTIRCheckLegality.cpp:155–164` |
+| R14 | `inter_tile_reduce` | `C == P` or `\|C\| == 1` | `KTIRCheckLegality.cpp:167–175` |
+| R3 | `reduce`, `consume` | declared dep `p ∈ P(g)` | `KTIRCheckLegality.cpp:82–89` |
+| R4 | `reduce`, `consume` | every `p` covered by some dep | `KTIRCheckLegality.cpp:92–97` |
+| R8 | `inter_tile_consume` | one source per consumer tile; attribute required when `\|P(g)\| > 1` | `KTIRCheckLegality.cpp:192–234` |
 
-**Not yet implemented:** R1, R5, R6, R7, R8, R9, R10, R11, R12, and
-R3/R4/R13/R14 for every op other than `reduce`. Of the ops §9.3 shows the
-backend requires — `gather`, `all_to_all`, `scatter`, `consume` — none has
-a verifier today, and R9/R12 in particular are stated over *flattened*
-multi-axis extents (§4), so implementing them means validating an axis
-list, not a single index. R5 and R7 are enforced in
+**Not yet implemented:** R1, R5, R6, R7, R9, R10, R11, R12, and R13/R14 for
+every op other than `reduce`. Of the ops §9.3 shows the backend requires,
+`consume` now has a verifier; `gather`, `all_to_all` and `scatter` do not, and
+R9/R12 in particular are stated over *flattened* multi-axis extents (§4), so
+implementing them means validating an axis list, not a single index. R5 and R7 are enforced in
 the Torch-Spyre SDSC planner (`_compatible_partitions`) but are absent
 from the KTIR verifier entirely — the gap exists at both the spec and the
 implementation level.
@@ -2448,22 +2447,20 @@ the other five delivery ops are new work, not revisions of existing ops.
 |---|---|---|
 | `inter_tile_produce` | exists (`KTDP.td:107`) | already matches: carries `producer_tiles_per_group` and no consumer set, returns a future |
 | `inter_tile_reduce` | exists (`KTDP.td:165`) | already matches: consumes the future, carries `consumer_tiles_per_group` and a reducer region only |
-| `inter_tile_consume` | **not implemented** | new (§6.1) |
+| `inter_tile_consume` | exists (`KTDP.td:165`) | implemented per §6.1: no region, no identity, results pinned to partials |
 | `inter_tile_reduce_scatter` | **not implemented** | new (§6.3) |
 | `inter_tile_gather` | **not implemented** | new (§6.4) |
 | `inter_tile_all_to_all` | **not implemented** | new (§6.5) |
 | `inter_tile_scatter` | **not implemented** | new (§6.6) |
 
-`inter_tile_consume` and `inter_tile_reduce_scatter` appear in the current
-tree only as prose: `KTDP.td:70` names them as unbuilt future work, and
-`KTDPTypes.td:235` lists them among the delivery ops the future type is
-*intended* to serve. Neither has an op definition, so this document is a
-specification for five new ops rather than a restructuring of existing
-ones.
+`inter_tile_reduce_scatter` appears in the current tree only as prose:
+`KTDPTypes.td:235` lists it among the delivery ops the future type is
+*intended* to serve, but it has no op definition. So this document remains a
+specification for four new ops.
 
-Cross-checking against §9.3: of the five unbuilt ops, `gather`,
-`all_to_all`, `scatter` and `consume` are required by measured relayouts,
-while `reduce_scatter` is required only by the reduction patterns of §7.3.
+Cross-checking against §9.3: of those four, `gather`, `all_to_all` and
+`scatter` are required by measured relayouts, while `reduce_scatter` is
+required only by the reduction patterns of §7.3.
 
 **The `!ktdp.tile_future<T, #groups>` type** already exists
 (`KTDPTypes.td:231`) and is shared across all ops; its `#groups` parameter

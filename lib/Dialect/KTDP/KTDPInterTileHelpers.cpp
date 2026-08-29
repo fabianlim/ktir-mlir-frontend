@@ -17,9 +17,26 @@
 //===----------------------------------------------------------------------===//
 //
 // Implements the pure-enumeration helpers declared in KtdpInterTileHelpers.h.
-// We enumerate concrete integer points rather than using Presburger set
-// operations; see the comment in KtdpOps.cpp for the trade-offs vs. the
-// pure-Presburger Option A approach.
+//
+// We ground each parameterized affine set at concrete integer points rather
+// than reasoning about it symbolically. This was a deliberate switch away from
+// a hybrid that used IntegerPolyhedron / isSubsetOf / computeVolume / isEqual
+// (see "Replace Presburger verifier with pure enumeration"; the symbolic design
+// is PR #25). Enumerating keeps every caller in terms of DenseSet<int64_t>,
+// which makes the checks in KTIRCheckLegality.cpp read as the set statements
+// the RFC writes -- subset, coverage, cardinality -- and makes their
+// diagnostics able to name the offending tile.
+//
+// The cost is that a set must be statically bounded to be enumerated at all.
+// Every helper here returns failure() rather than guessing when a bound is not
+// a constant, and callers treat that as "check nothing" -- see the soundness
+// note in KTIRCheckLegality.cpp's header, since silence is only safe for checks
+// that reject on evidence they have.
+//
+// Point-by-point emptiness testing is what bounds the cost: it is linear in the
+// tile-id range per group, which is a handful of tiles per group in practice.
+// A symbolic formulation would avoid that, at the price of diagnostics that
+// cannot point at a tile.
 //
 //===----------------------------------------------------------------------===//
 
