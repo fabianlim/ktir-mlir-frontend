@@ -38,7 +38,7 @@ attributes §7.2's rules produce are normative outputs; the procedure that
 derives them is not.
 
 **Running example.** One measured relayout, `Stcdp_QC_5`, is worked end to
-end in §7.3.1 and used throughout §7.2 to illustrate the derivation rule.
+end in §7.5.1 and used throughout §7.2 to illustrate the derivation rule.
 It is an **all-to-all**: eight independent 4-way exchanges among 32 tiles.
 It appears nowhere before §7.
 
@@ -86,7 +86,7 @@ most common error in reading this document.
 
 These three facts are asserted here and *demonstrated* in §7, which works
 them out against a concrete artifact: §7.2 gives the rule that says how
-many groups there are and who is in each, and §7.3–§7.10 apply it to every
+many groups there are and who is in each, and §7.3–§7.7 apply it to every
 pattern. Nothing before §7 depends on that treatment; nothing in it
 contradicts this summary.
 
@@ -105,7 +105,7 @@ six share, and §6 reduces each op to its own row.
 
 A reader who wants the shortest path: §1.1 (the matrix), §4 (result
 types), §7.2 (how the attributes are derived, including which op a division
-requires), §7.3 (all-to-all worked end to end), and §7's preamble census
+requires), §7.5 (all-to-all worked end to end), and §7's preamble census
 (which ops the measured set actually requires).
 
 ---
@@ -145,16 +145,18 @@ means a tensor or tile axis.
   `replicate` | `concat` | `permute` | `split`.
 - **cardinality** — producer tiles per group × consumer tiles per group.
 
-**Semantics matrix.** One row per delivery op.
+**Semantics matrix.** One row per delivery op, grouped by `placement`:
+`replicate`, then `concat`, then `split`, then `permute`. That grouping is
+this document's canonical op order, and §5, §6, §8 and §9.3 use it too.
 
 | Op | combine | placement | producers/grp | consumers/grp | dim attrs | region | identity |
 |---|---|---|---|---|---|---|---|
 | `consume` | none | replicate | 1 per consumer ¹ | free | — | — | — |
 | `reduce` | fold | replicate | all | free | — | combiner | yes |
-| `reduce_scatter` | fold | split | all | free | `scatter_dimensions` | combiner | yes |
 | `gather` | none | concat | all | free | `gather_dimensions` | — | — |
-| `all_to_all` | none | permute | all ² | all ² | `split_dimensions`, `concat_dimensions` | — | — |
 | `scatter` | none | split | 1 per group | free | `scatter_dimensions` | — | — |
+| `reduce_scatter` | fold | split | all | free | `scatter_dimensions` | combiner | yes |
+| `all_to_all` | none | permute | all ² | all ² | `split_dimensions`, `concat_dimensions` | — | — |
 
 **¹ `consume` has two regimes, and the matrix row covers both.** With one
 producer per group it is a **broadcast**: one value, delivered unchanged
@@ -162,7 +164,7 @@ to every consumer. With `N` producers per group and a dependency
 attribute pairing each consumer with exactly one of them (R8), it is
 **routing** — `N` independent point-to-point deliveries sharing one
 `produce`. The bijective case of routing is a whole-partial
-**permutation**, XLA's `CollectivePermute` (§6.1, §7.7.2). Both regimes
+**permutation**, XLA's `CollectivePermute` (§6.1, §7.6.2). Both regimes
 are `placement = replicate` because each consumer's result is one
 producer's value unchanged; "replicate" describes the *type* relation, not
 that every consumer gets the same value.
@@ -178,9 +180,8 @@ contribute and every consumer in the group receive, so `|P(g)| = K` and
 `|C(g)| = M` are each uniform across groups (R6, R7) — not that the two
 sets coincide.
 
-`all_to_all` is listed before `scatter` because it shares the
-all-producers cardinality cell with `gather` and `reduce_scatter`, and
-because its relationship to the two copy-only placements is structural:
+`all_to_all` is listed last because its relationship to the two copy-only
+placements is structural:
 **permute = split + concat in one step**, which is why it carries both dim
 attributes and no new ones. `all_to_all` names them `split_dimensions` and
 `concat_dimensions` — the same two roles `scatter_dimensions` and
@@ -191,7 +192,7 @@ neither the op nor a unique role.
 **Every dim attribute is a list of axis indices** into `T_p` — an
 `i64` array, not a single `i64` — flattened in list order per §4. The
 list-valued form is not reserved for a corner case: a measured pattern
-concatenates across three axes at once (§7.4).
+concatenates across three axes at once (§7.3).
 
 Three things this matrix makes visible:
 
@@ -235,7 +236,7 @@ deliveries sharing one `produce`, not an all-producers delivery.
 named pattern and nothing about how a particular data division maps onto a
 row. That mapping is a separate question with its own procedure — §7.2's
 Step 7 decision table for the classification, §7.2's other steps for the resulting
-attributes — and §7.3–§7.10 walk a measured instance of each row that has
+attributes — and §7.3–§7.7 walk a measured instance of each row that has
 one.
 
 Every row above is a standard collective under a standard name, which is
@@ -252,29 +253,18 @@ place the six ops:
 | `inter_tile_scatter` | — | `MPI_Scatter` |
 | `consume` + bijective dep set | `CollectivePermute` | `MPI_Sendrecv` |
 
-`scatter` having no XLA counterpart is expected: XLA's collectives are
-all-to-all-shaped, and a one-to-many split is a `DynamicSlice` per
-consumer there. The last row is the one pattern this document expresses
-without giving it an op — see §6.1 and §7.7.2, which name it.
+The last row is the one pattern this document expresses
+without giving it an op — see §6.1 and §7.6.2, which name it.
 
 ### 1.3 The future value
 
 `ktdp.inter_tile_produce` returns a
-`!ktdp.tile_future<(T_p), groups = #groups>` SSA value. The group set
-`#groups` is carried as a parameter of the future type rather than repeated
-as a separate `groups` attribute on both the production and delivery ops.
-Each delivery op therefore infers the groups from its operand type, and a
-group mismatch between production and
-delivery is inexpressible — the def-use edge already requires the operand
-type to equal the result type, so the type system rejects it structurally
-rather than a verifier catching it after the fact.
-
-The def-use edge from production to delivery encodes the happens-before
-ordering with no explicit barriers in the IR. The synchronization
-granularity — full-barrier or per-tile — is controlled by the
-`producer_dependency_per_consumer` attribute on the delivery op (§3.4).
-Corresponding production and delivery ops are expected to be adjacent in
-a single basic block to avoid deadlocks.
+`!ktdp.tile_future<(T_p), groups = #groups>` SSA value, which carries the
+group set as a type parameter rather than repeating it as a `groups`
+attribute on both the production and the delivery op — so each delivery op
+infers the groups from its operand type, and a mismatch between the two is
+structurally inexpressible rather than a verifier's catch. §3.2 states what
+else that operand carries, §3.6 the ordering the def-use edge encodes.
 
 ---
 
@@ -287,9 +277,9 @@ selecting which tiles produce per group. The set has one dimension (the tile
 id) and one symbol (`g`, the group index). For example,
 `affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>` selects tile ids
 `4g .. 4g+3` for any group index `g`. The attribute is a single integer set
-(`KTDP.td:143`) — there is no alternative surface form, and none is needed:
+(`KTDP.td`) — there is no alternative surface form, and none is needed:
 `IntegerSet` constraints are `AffineExpr`s, so `mod` and `floordiv` by a
-constant are available for irregular or strided membership (§7.2, Step 4).
+constant are available for irregular or strided membership (§7.2, Step 3).
 Which cardinality each delivery op requires of this set is
 given by the `producers/grp` column of §1.1 and enforced by R8 (§5).
 
@@ -347,10 +337,10 @@ region — appears inside it.
 *What this rules out.* Contribution *preparation* inside the region: a
 partial that is a sum, a reduction, a fill or a reshape must be computed
 at function scope and referenced from the region, as the marker form
-above does. §7.5.1's `scatter` example, which sums two loaded tiles inside
-the region, is the shape this restriction forbids; under it the
-`linalg.add` moves out and only the two `construct_access_tile`/`load`
-pairs stay in.
+above does. §7.4.1's `scatter` example is the one listing that keeps a load
+inside the region — it has a single producer per group, so it must — and
+under this restriction that region holds nothing but the
+`construct_access_tile`/`load` pair.
 
 *Why.* Three reasons, in order of weight.
 
@@ -378,47 +368,84 @@ The restriction is on the *producer* region only. §3.5's combiner region
 is a different region on a different op and is unaffected: it is required
 to contain compute, and only required to be pure.
 
-**Worked example — anchors as a function of `%gid`.** §7.10's "How a bounded
-extent is expressed" shows the `construct_access_tile` → `ktdp.load` →
-`T_p` chain with fixed anchors. The region's block argument makes those
-anchors group-dependent; this is that same chain with `%gid` in it.
+**Worked example — an anchor as a function of `%gid` and the tile id.** §3.8
+shows the `construct_access_tile` → `ktdp.load` → `T_p` chain with fixed
+anchors. The region's block argument is what lets those anchors depend on the
+tile's position in its group; this is that same chain with `%gid` in it.
 
 Take a rank-4 tensor `[y, mb, out, x] = [1, 8, 128, 512]` cut 8 ways on
 `x` and 4 ways on `mb`, `out` and `y` whole, on 32 tiles — 8 groups of 4.
-Producer tile `t = 4g + l` owns `mb[2l : 2l+2] × x[64g : 64g+64]`, so the
-two anchors are `mb = 2l` and `x = 64g`; both strides are the axis extent
-over its slice count (`8/4 = 2` and `512/8 = 64`).
+Producer tile `t = 4g + l` contributes `mb[2l : 2l+2]` of its group's `x`
+block; the `mb` stride is the axis extent over its slice count, `8/4 = 2`.
+
+**Only one of the two anchors survives, and that is the point of a
+`ct_local` view.** The view below is the tile's own LX buffer, holding the
+group's `x` block whole — the shape the previous step left in scratch, so all
+four tiles of the group hold an identical `[1, 8, 128, 64]` buffer. The `x`
+anchor `64g` of the *global* reading is that buffer's own base address and
+appears nowhere in the IR: a tile addresses only its own LX (§0.1, §3.8).
+What remains is `mb = 2l`, which selects the tile's own slab out of a buffer
+larger than its contribution (§3.8's chain, and §7.2.1 for a measured case of
+a bounded region). Where a buffer is sized to the piece itself — §7.5.1's
+measured one is — even that anchor is the origin; the larger buffer here is
+what makes an anchor visible at all.
 
 `%gid` supplies `g` directly. `l` is the tile's position within its group,
-recovered from the tile id: `l = t - 4*g`. (§7.3.1 works this same
+recovered from the tile id: `l = t - 4*g`. (§7.5.1 works this same
 division as a measured relayout, with the placement derived from the
-artifact's core-strides rather than assumed contiguous.)
+artifact's numbering rather than assumed contiguous.)
 
 ```mlir
+#buf_set = affine_set<(d0, d1, d2, d3) :
+    (d0 == 0,                        // y
+     d1 >= 0, -d1 + 7   >= 0,        // mb: the group's whole extent
+     d2 >= 0, -d2 + 127 >= 0,        // out: whole
+     d3 >= 0, -d3 + 63  >= 0)>       // x: this tile's own block
 #part_tile_set = affine_set<(d0, d1, d2, d3) :
     (d0 == 0,                        // y
-     d1 >= 0, -d1 + 1   >= 0,        // mb: 2 wide
+     d1 >= 0, -d1 + 1   >= 0,        // mb: 2 wide — the contribution
      d2 >= 0, -d2 + 127 >= 0,        // out: whole
      d3 >= 0, -d3 + 63  >= 0)>       // x: 64 wide
 #identity_4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// 32 tiles in 8 groups of 4 — the group structure every listing here uses.
+#group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#all_groups  = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+
+%c0 = arith.constant 0 : index
+%c2 = arith.constant 2 : index
+%c4 = arith.constant 4 : index
+
+// The offset operand of ktdp.construct_memory_view is in ELEMENTS, matching
+// its element `strides`. A measurement that records a raw LX *byte* address
+// therefore has to be divided by the element size: at f16, byte 65536 is
+// element 32768. Every offset constant in this document is an element count
+// and says so.
+%in_offset = arith.constant 0 : index
+%lx_in = ktdp.construct_memory_view %in_offset, sizes: [1, 8, 128, 64],
+    strides: [65536, 8192, 64, 1] {
+    coordinate_set = #buf_set,
+    memory_space   = #ktdp.memory_space<ct_local>
+} : memref<1x8x128x64xf16, #ktdp.memory_space<ct_local>>
 
 %future = ktdp.inter_tile_produce
     producer_tiles_per_group = #group_tiles
     -> !ktdp.tile_future<(tensor<1x2x128x64xf16>), groups = #all_groups>
 {
   ^bb0(%gid: index):
-    // Index arithmetic: l = t - 4*g, then mb = 2*l and x = 64*g.
-    %t  = ktdp.get_compute_tile_id : index
-    %4g = arith.muli %gid, %c4 : index
-    %l  = arith.subi %t, %4g   : index
-    %mb_anchor = arith.muli %l,   %c2  : index      // 0, 2, 4, 6
-    %x_anchor  = arith.muli %gid, %c64 : index      // 0, 64, ..., 448
+    // Index arithmetic: l = t - 4*g, then mb = 2*l. There is no x anchor —
+    // the buffer is already this tile's own x block.
+    %t     = ktdp.get_compute_tile_id : index
+    %gbase = arith.muli %gid, %c4 : index
+    %l     = arith.subi %t, %gbase : index
+    %mb_anchor = arith.muli %l, %c2 : index         // 0, 2, 4, 6
 
     // Memory ops only, per the restriction above.
     %access = ktdp.construct_access_tile
-        %T_view[%c0, %mb_anchor, %c0, %x_anchor] {
+        %lx_in[%c0, %mb_anchor, %c0, %c0] {
         access_tile_set = #part_tile_set, access_tile_order = #identity_4d
-    } : memref<1x8x128x512xf16> -> !ktdp.access_tile<1x2x128x64xindex>
+    } : memref<1x8x128x64xf16, #ktdp.memory_space<ct_local>>
+        -> !ktdp.access_tile<1x2x128x64xindex>
     %partial = ktdp.load %access
         : !ktdp.access_tile<1x2x128x64xindex> -> tensor<1x2x128x64xf16>
 
@@ -426,20 +453,20 @@ artifact's core-strides rather than assumed contiguous.)
 }
 ```
 
-Substituting `g = 0, l = 1` gives anchor `[0, 2, 0, 0]`; `g = 2, l = 2`
-gives `[0, 4, 0, 128]`. Both are boxes a measured relayout contains
-(§7.3.1).
+Substituting `l = 1` gives anchor `[0, 2, 0, 0]` and `l = 2` gives
+`[0, 4, 0, 0]` — the `mb` slabs a measured relayout gives the group's second
+and third tiles (§7.5.1).
 
-Two things the example makes visible. The **`%gid` dependence is what a
-group-indexed anchor looks like**: without it every group would read the
-same `x` block and the eight exchanges would not be independent. And the
-region needs `%gid` *and* the tile id, not either alone — `%gid` cannot
-name `l`, and the tile id alone cannot be split into `(g, l)` inside an
-affine set (§3.4).
+Two things the example makes visible. The **anchor is a function of the
+tile's position in its group**: without `l` all four tiles would contribute
+the same slab of their identical buffers, and there would be nothing to
+assemble. And the region needs `%gid` *and* the tile id, not either alone —
+`%gid` cannot name `l`, and the tile id alone cannot be split into `(g, l)`
+inside an affine set (§3.4).
 
 A single-producer-per-group op is the case where the region is not merely
 convenient but required: with `|P(g)| == 1` the load runs on one tile in
-four, and only the region confines it (§7.5.1).
+four, and only the region confines it (§7.4.1).
 
 ### 2.3 Op signature
 
@@ -517,7 +544,8 @@ second group parameter.
 strict containment either way, and wholly disjoint — and they occur among
 movements that classify to the *same* op with the *same* cardinalities.
 §7.2's `P(g)`/`C(g)` independence part tabulates the measured instances and
-explains why: membership is a radix map whose *core-strides* are an input
+explains why: membership is a mixed-radix numbering whose digit order, `σ`
+and `base` are inputs
 independent of the division, so nothing about the division alone constrains
 the relation. This is the measurement that closes R13 for the copy-only ops
 (§5).
@@ -528,16 +556,12 @@ Every delivery runs from a tile in `P(g)` to a tile in `C(g)` for the
 group an independent exchange, and it is what lets one op describe several
 independent small exchanges instead of one global one. It follows from R1
 (each producing tile is in exactly one group) together with
-`producer_dependency_per_consumer` being parameterized by `g`.
+`producer_dependency_per_consumer` being parameterized by `g`. It does not
+imply any intersection between the two sets — a group whose sets are
+disjoint is still confined — and it holds in every group of the measured
+set.
 
-**Confinement does not imply intersection.** A group whose two sets are
-disjoint is still confined — those producers send only to those consumers.
-Conflating the two properties is the failure mode this subsection exists to
-prevent, and §7.2's `P(g)`/`C(g)` independence part has the measured case.
-Confinement holds in
-every group of the measured set.
-
-### 3.3 Within-group local index — normative
+### 3.3 Within-group local index and ordered placement — normative
 
 **`l` is a tile's position, counting from 0 in ascending tile-id order,
 among the relevant set within its group** — the producer set for `concat` placement (and for
@@ -551,6 +575,45 @@ coincidence and break silently under non-monotone tile assignments. Every
 position — never a tile id, and never an offset in the textual order of the
 set's constraints. ("Position" rather than "rank": in this document *rank*
 always means a tensor's number of dimensions.)
+
+**Which slice a tile gets — normative, and stated over slice indices, not
+over elements.** This is the one place where the single-axis intuition
+misleads, so the multi-axis case is given first.
+
+Let `D = [d_0, …, d_{n-1}]` be the axis list, ascending (R9). For `concat`,
+the assembly is a **mixed-radix odometer over per-axis slice indices**: the
+producer local index `l` above decomposes as
+
+```
+l  =  l_0 · (n_1 · n_2 · … · n_{n-1})  +  …  +  l_{n-2} · n_{n-1}  +  l_{n-1}
+```
+
+where `n_k` is the number of producer shares along axis `d_k`, `d_0` is
+slowest-varying and `d_{n-1}` fastest, and producer `l` occupies the **box**
+
+```
+[ l_k · T_p[d_k] : (l_k + 1) · T_p[d_k] )      on each listed axis d_k
+```
+
+with every unlisted axis whole. `split` is the same statement with the
+consumer local index and per-axis share counts, and `permute` applies both
+simultaneously: consumer `l_c` receives, from each producer `l_p`, that
+producer's `split_dimensions` box `l_c`, placed at `concat_dimensions` box
+`l_p`.
+
+This odometer orders data slices — it is placement semantics, and
+normative. It is a different mixed-radix odometer from §7.2's radix map,
+which orders core ids to read tile identity back off a measured artifact;
+see §7.2 for that one.
+
+**A producer's contribution is a box, not an interval.** For `n == 1` the
+box *is* the interval `[l·chunk : (l+1)·chunk)` of the flattened space, and
+the two statements agree — which is why the single-axis form is the one
+usually quoted. For `n > 1` they do **not** agree: a rectangular sub-box of
+three axes is not a contiguous run of the row-major element flattening of
+those three axes. Stating placement as an interval of `E(D)` (§4) would be
+wrong for the measured three-axis gather. The odometer form above is
+correct for all `n` and reduces to the interval form at `n == 1`.
 
 ### 3.4 `producer_dependency_per_consumer` *(optional)*
 
@@ -571,7 +634,7 @@ The attribute has two distinct effects, depending on placement:
   declared subset: contributions from the remaining producers are treated
   as the identity.
 
-`scatter` is the one op that does not accept the attribute (§6.6).
+`scatter` is the one op that does not accept the attribute (§6.4).
 
 Its verification obligations are R3–R7 (§5); they are stated there and
 not restated here.
@@ -588,9 +651,8 @@ Not every symbol needs to appear in a given instantiation:
   naming `g` is the clearer spelling and every example in this document is
   purely linear.
 - **Both `c` and `g` are needed** when the mapping varies by both
-  consumer identity and group. Example: a butterfly mirror exchange,
-  `(p)[c, g] : (p + c - 8*g - 3 == 0)`, where the sum `p + c` differs
-  for each group.
+  consumer identity and group. §7.6.2 works that case and says why neither
+  symbol can be eliminated.
 
 ### 3.5 Combiner region and `identity` — `fold` placement only
 
@@ -646,11 +708,10 @@ availability signals** rather than a monolithic group barrier:
      unrelated producers. Different consumer tiles may declare different
      dependency sets, enabling fine-grained producer–consumer pipelining.
 
-A multi-producer wait is therefore a **per-consumer AND-join over
-existing per-tile signals**, not a new primitive. This is why the
-all-producers ops (`reduce`, `reduce_scatter`, `gather`, `all_to_all`)
-introduce no synchronization machinery beyond what a single-producer op
-already needs: they differ only in how many signals the join covers.
+The all-producers ops (`reduce`, `reduce_scatter`, `gather`, `all_to_all`)
+therefore introduce no synchronization machinery beyond what a
+single-producer op already needs: they differ only in how many of the
+per-tile signals above a consumer's wait covers.
 
 In SPMD KTIR, a tile cannot observe other tiles' partials except through
 a dialect-defined boundary. The `ktdp.inter_tile_produce` block is that
@@ -661,7 +722,8 @@ dataflow ordering applies.
 
 Lowering inserts target-specific hardware synchronization: a group
 barrier for full-barrier mode, and point-to-point ready/wait signals for
-per-tile mode.
+per-tile mode. Corresponding production and delivery ops are expected to be
+adjacent in a single basic block, to avoid deadlocks.
 
 ### 3.7 Result semantics
 
@@ -689,6 +751,60 @@ where each contribution is a correlated tuple of tensors (values,
 indices), use `N = 2`: two identities, two yielded partials, four
 combiner arguments yielding two combined values, two op results. Each
 role's result type follows the §4 rule independently.
+
+### 3.8 Where coordinates live — normative
+
+A measured destination owns exactly one row of an axis — `mb[511:512]`
+(§7.2.1) — and **no delivery op carries that coordinate.** The tile sets name which
+*tiles* participate, the dimension attributes name which *axes* split or
+concatenate, and §4's type rules are extent arithmetic with no base
+coordinate: none of the six ops carries an offset.
+
+A bounded extent is therefore a property of `T_p`, and `T_p` gets it from the
+access tile the partial was loaded through. The chain is the same whatever
+the bound:
+
+```mlir
+// The extent is the access tile's shape and the offset is its anchor. Both are
+// arguments here, and neither appears again downstream.
+%access  = ktdp.construct_access_tile %view[<anchor-indices>] {
+    access_tile_set = <affine-set>, access_tile_order = <affine-map>
+} : memref<..., #ktdp.memory_space<ct_local>> -> !ktdp.access_tile<...xindex>
+%partial = ktdp.load %access : !ktdp.access_tile<...xindex> -> T_p
+
+// From here the bound is invisible: the delivery op sees a T_p and an axis
+// set, never a coordinate. Selecting a different sub-tensor changes only T_p.
+%future  = ktdp.inter_tile_produce producer_tiles_per_group = <affine-set>
+    -> !ktdp.tile_future<(T_p), groups = #groups>
+{ ^bb0(%gid: index): ktdp.yield_partial %partial : T_p }
+%result  = ktdp.inter_tile_consume(%future)
+    consumer_tiles_per_group = <affine-set>
+    : !ktdp.tile_future<(T_p), groups = #groups> -> T_p
+```
+
+`ktdp.construct_access_tile` fixes the coordinates, `ktdp.load` yields the
+value, `ktdp.yield_partial` only names it, and the delivery carries whatever
+the partial turned out to be. **That is why the coordinate never reaches a
+delivery op**, and why Step 1 takes its counts over the delivered region: read
+over the whole tensor the pair above covers 1/512 and its cardinalities come
+out wrong, while over the region actually written it is an ordinary scatter
+(§7.2.1).
+§2.2 works the same chain with group-dependent anchors.
+
+**The view is core-local, and its offset selects a buffer — normative.** The
+`ktdp.construct_memory_view` a partial is loaded through, and the one a result
+is stored through, name `#ktdp.memory_space<ct_local>`: a tile addresses only
+its own LX (§0.1), and every piece a measured movement names is core-local
+(§7.1's `type: "lx"`). This changes what the surrounding index arithmetic is
+for. In a **global** view the anchor encodes *ownership* — which part of the
+whole tensor this tile's piece is — and must be computed from the tile id. In
+a `ct_local` view ownership **is** the SPMD execution: no coordinate expresses
+it, and the offset is instead a **buffer selector** — which local buffer, the
+slot the previous step wrote or the slot the next step reads. Hence the two
+views over one memory space at two different offsets in every listing of §7,
+and hence almost no index arithmetic in them: what remains is only a bounded
+extent selected out of a buffer larger than the contribution (§2.2), not an
+ownership computation.
 
 ---
 
@@ -767,69 +883,13 @@ whether `T_c == T_p` by testing `split_dimensions == concat_dimensions`.
 Entries need not be **adjacent**: `[0, 2]` over a rank-3 partial is legal and
 is exactly what physicalization produces (§9.3).
 
-**Split and concat apply to the floordiv axis — normative.** When a listed
-axis is a **sticked** axis — one that a stick layout has split into a
-`floordiv` (chunk-count) axis and a `mod` (within-stick) axis — the `÷ C` or
-`× P` applies to the **floordiv axis only**. The `mod` axis is invariant: its
-extent is the stick size, and changing it would redefine what a stick is.
-
-This settles what "`E(D)` divided by `C`" alone leaves open, since a flattened
-extent does not say which listed axis absorbs the factor. For a partial
-`[2, 16, 32]` (logical `[16, 64]`, stick 32) with `gather_dimensions = [0, 2]`
-and `P = 4`, the result is `[8, 16, 32]` — the chunk count goes `2 → 8` and
-the stick axis stays `32`, which is exactly the physicalization of the logical
-result `[16, 256]`. Absorbing into the `mod` axis instead would give
-`[2, 16, 128]`: the same flattened extent, the wrong tensor.
-
-A useful consequence: **R9 applied to the floordiv axis is the stick-multiple
-check.** `E(floordiv) % C == 0` holds exactly when the logical result extent
-is a whole multiple of the stick, so a split that would drive the result
-sub-stick fails R9 rather than needing a rule of its own. On the partial
-above, `C = 2` gives `2 % 2 == 0` and a result of `[1, 16, 32]`; `C = 4` gives
-`2 % 4 ≠ 0` and is rejected — correctly, since the logical result `[16, 16]`
-is half a stick and unrepresentable in that layout.
-
-Fixing this order is a requirement, not a convenience: §7.4 has a measured
+Fixing this order is a requirement, not a convenience: §7.3 has a measured
 three-axis concat, so the flattening must be well-defined over more than
 two axes for a *named* pattern rather than only a corner case.
 
-**Which slice a tile gets — normative, and stated over slice indices, not
-over elements.** This is the one place where the single-axis intuition
-misleads, so the multi-axis case is given first.
-
-Let `D = [d_0, …, d_{n-1}]` be the axis list, ascending (R9). For `concat`,
-the assembly is a **mixed-radix odometer over per-axis slice indices**: the
-producer local index `l` (§3.3) decomposes as
-
-```
-l  =  l_0 · (n_1 · n_2 · … · n_{n-1})  +  …  +  l_{n-2} · n_{n-1}  +  l_{n-1}
-```
-
-where `n_k` is the number of producer shares along axis `d_k`, `d_0` is
-slowest-varying and `d_{n-1}` fastest, and producer `l` occupies the **box**
-
-```
-[ l_k · T_p[d_k] : (l_k + 1) · T_p[d_k] )      on each listed axis d_k
-```
-
-with every unlisted axis whole. `split` is the same statement with the
-consumer local index and per-axis share counts, and `permute` applies both
-simultaneously: consumer `l_c` receives, from each producer `l_p`, that
-producer's `split_dimensions` box `l_c`, placed at `concat_dimensions` box
-`l_p`.
-
-**A producer's contribution is a box, not an interval.** For `n == 1` the
-box *is* the interval `[l·chunk : (l+1)·chunk)` of the flattened space, and
-the two statements agree — which is why the single-axis form is the one
-usually quoted. For `n > 1` they do **not** agree: a rectangular sub-box of
-three axes is not a contiguous run of the row-major element flattening of
-those three axes. Stating placement as an interval of `E(D)` would be
-wrong for the measured three-axis gather. The odometer form above is
-correct for all `n` and reduces to the interval form at `n == 1`.
-
-**Consequence: for `n > 1` the result type is checked, not derived.** The
-per-axis share counts `n_k` are extra information that `P` alone does not
-carry — `P = 32` is consistent with `(n_k) = (2,8,2)`, `(32,1,1)`, `(4,4,2)`
+**Consequence of §3.3's odometer: for `n > 1` the result type is checked,
+not derived.** The per-axis share counts `n_k` are extra information that
+`P` alone does not carry — `P = 32` is consistent with `(n_k) = (2,8,2)`, `(32,1,1)`, `(4,4,2)`
 and more. The result type is written explicitly in the IR, so a verifier
 does not need to derive it; what it must check is
 
@@ -844,7 +904,7 @@ per-axis clause is not redundant with its product clause (§5). The measured
 three-axis gather satisfies it: `T_p` shares are `in:64, out:64, x:4` of a
 tensor `in:128, out:512, x:8`, so the per-axis factors are `(2, 8, 2)`,
 their product is `32 = P`, and the flattened extent multiplies out as
-`16384 × 32 = 524288` (§7.4).
+`16384 × 32 = 524288` (§7.3).
 
 For `n == 1` the result type *is* derivable, and the table above is the
 derivation.
@@ -855,16 +915,11 @@ another multiplied by the same factor — so a square all-to-all is a pure
 redistribution of ownership. If additionally `split_dimensions == concat_dimensions`,
 the result *type* equals `T_p`: the distributed transpose. That equal-type
 case is not what the measured set contains — every measured all-to-all
-splits and concats *different* axes (§7.3, §7's census), so `P == C` conserves the
+splits and concats *different* axes (§7.5, §7's census), so `P == C` conserves the
 element count while the type still changes. The non-square measured case
 (`P = 2`, `C = 4`) does not conserve it at all: `131072 → 65536` elements
 per tile, halved because twice as many consumers share the same total
-(§7.3.2).
-
-**Why `split` divides an honest data axis.** Every splitting op divides an
-extent of an axis the partial already has, so the types stay honest:
-`<128x1x64>` → `<32x1x64>`, never `<1x...>`. No op manufactures a unit
-dimension for a collapse to consume, and none removes one.
+(§7.5.2).
 
 ---
 
@@ -882,22 +937,22 @@ of definition only for the other eleven.
 
 **Verification matrix.** One row per rule, one column per delivery op.
 
-| Rule | Owner | consume | reduce | red_scat | gather | all_to_all | scatter |
+| Rule | Owner | consume | reduce | gather | scatter | red_scat | all_to_all |
 |---|---|---|---|---|---|---|---|
 | R1 group disjointness (§2.1) | produce | y | y | y | y | y | y |
 | R2 single-use future (§2.3) | produce | y | y | y | y | y | y |
-| R3 dep set subset of producers | delivery | y | y | y | y | y | n/a |
-| R4 every producer covered by some consumer | delivery | y | y | y | y | y | n/a |
-| R5 dep sets pairwise disjoint | delivery | — | — | — | y | y | n/a |
-| R6 uniform dep-set cardinality | delivery | — | — | — | y | y | n/a |
-| R7 uniform producer cardinality across groups | delivery | — | — | — | y | y | n/a |
-| R8 single-source delivery | delivery | y | — | — | — | — | y |
-| R9 flattened split extent divisible by `C` | delivery | — | — | y | — | y | y |
-| R10 combiner purity (§3.5) | delivery | — | y | y | — | — | — |
-| R11 identity shape matches `T_p` (§3.5) | delivery | — | y | y | — | — | — |
-| R12 flattened concat extent × `P` well-defined | delivery | — | — | — | y | y | — |
-| R13 consumer set subset of producer set | delivery | — | y | ? | n | n | n |
-| R14 reduce mode gate: `C == P` or `\|C\| == 1` | delivery | — | y | ? | — | — | — |
+| R3 dep set subset of producers | delivery | y | y | y | n/a | y | y |
+| R4 every producer covered by some consumer | delivery | y | y | y | n/a | y | y |
+| R5 dep sets pairwise disjoint | delivery | — | — | y | n/a | — | y |
+| R6 uniform dep-set cardinality | delivery | — | — | y | n/a | — | y |
+| R7 uniform producer cardinality across groups | delivery | — | — | y | n/a | — | y |
+| R8 single-source delivery | delivery | y | — | — | y | — | — |
+| R9 flattened split extent divisible by `C` | delivery | — | — | — | y | y | y |
+| R10 combiner purity (§3.5) | delivery | — | y | — | — | y | — |
+| R11 identity shape matches `T_p` (§3.5) | delivery | — | y | — | — | y | — |
+| R12 flattened concat extent × `P` well-defined | delivery | — | — | y | — | — | y |
+| R13 consumer set subset of producer set | delivery | — | y | n | n | ? | n |
+| R14 reduce mode gate: `C == P` or `\|C\| == 1` | delivery | — | y | — | — | ? | — |
 
 **R3–R7 are vacuous on every measured relayout.** All five constrain
 `producer_dependency_per_consumer`, and §7.2's Step 6 establishes by
@@ -906,7 +961,7 @@ within-group overlap graph is complete bipartite in all 51, so the default
 full-barrier reading is correct throughout. R6 and R7 are separately
 *confirmed* rather than assumed, since cardinalities are uniform across
 groups in all 51. So these five rules are needed for the routing patterns
-of §7.7 and for nothing yet measured.
+of §7.6.2 and for nothing yet measured.
 
 Statements:
 
@@ -957,7 +1012,7 @@ Statements:
 
   where `dep(c, g)` is the producer set `producer_dependency_per_consumer`
   declares for consumer tile `c` (§3.4). `inter_tile_scatter` takes no such
-  attribute (§6.6), so for it the rule reduces to its simplest form: exactly
+  attribute (§6.4), so for it the rule reduces to its simplest form: exactly
   one producer tile per group.
 
   **Why per consumer tile rather than per group.** These two ops deliver into a
@@ -967,13 +1022,17 @@ Statements:
   §1.1, "which producer's value wins?". What the op needs is not that the
   *group* hold one producer, but that each *consumer tile* have a single
   source. The two coincide when `|P(g)| == 1`, the common case (broadcast,
-  §7.6), which needs no attribute at all.
+  §7.6.1), which needs no attribute at all. R8 is thus a verifier obligation
+  for both ops, but it bites differently: `scatter` takes no dependency
+  attribute, so one producer per group is the whole rule, whereas `consume`
+  admits a multi-producer group whenever the attribute pairs each consumer
+  tile with exactly one producer. Neither is implemented yet (§8).
 
   **For `inter_tile_consume` with `|P(g)| > 1` the attribute is required.**
   There is no meaningful default, because receiving from every producer is
   exactly that undefined cell. With the attribute, such a group is a
   **routing** pattern — several independent point-to-point deliveries sharing
-  one `produce` op, as in §7.7.1 and §7.7.2 — and no consumer tile ever sees
+  one `produce` op, as in §7.6.2 — and no consumer tile ever sees
   two values. A group with `|P(g)| > 1` and no attribute is rejected.
 
   A producer **may** serve several consumer tiles (multicast within the
@@ -994,14 +1053,14 @@ Statements:
   out-of-order list would silently denote a different flattening.
 
   For a multi-axis list the product form is necessary but **not
-  sufficient**: §4's odometer placement also requires each listed axis to
+  sufficient**: §3.3's odometer placement also requires each listed axis to
   divide individually — `T_p[d_k] % T_r[d_k] == 0` for every listed axis,
   with the per-axis factors `T_p[d_k] / T_r[d_k]` multiplying to `C`. This is
   the same per-axis clause R12 carries on the concat side, and for the same
-  reason. No measured split is multi-axis (§7.5), so this clause is
-  unexercised while R12's concat counterpart is measured (§7.4).
+  reason. No measured split is multi-axis (§7.4), so this clause is
+  unexercised while R12's concat counterpart is measured (§7.3).
 - **R11 and the shipped constraint.** R11 pins `identity` to `T_p`, while
-  the implemented `reduce` ties it to *results* (`KTDP.td:172-174`). With no
+  the implemented `reduce` ties it to *results* (`KTDP.td`). With no
   rank reduction (§4) these coincide for `reduce`, since its result *is*
   `T_p`. They diverge for `reduce_scatter`, whose result is `T_p` split by
   `C`: R11's `T_p` is the correct one there, since the identity is combined
@@ -1017,7 +1076,7 @@ Statements:
   the flattening of §4 depends on the individual extents. The same
   validity conditions as R9 apply to the list. For the square
   `all_to_all` case the divisibility follows from R7 + R9, but it must be
-  stated independently for the non-square case, which §7.3.2 shows is
+  stated independently for the non-square case, which §7.5.2 shows is
   measured and not hypothetical.
 
   **The per-axis clause is what makes the rule checkable at all for
@@ -1025,13 +1084,13 @@ Statements:
   factors, so the result type is declared rather than derived; R12 is then
   the check that the declared type is consistent with `T_p` and `P` —
   per-axis divisibility, and per-axis factors multiplying to `P`. The
-  measured three-axis gather is the case that exercises it (§7.4).
+  measured three-axis gather is the case that exercises it (§7.3).
 - **R13 — consumer set subset of producer set.** Every consumer tile in a
   group must also be a producer in that group, i.e.
   `consumer_tiles_per_group(g) ⊆ producer_tiles_per_group(g)`.
 
   **It holds for `reduce` and fails for the copy-only ops.** For `reduce`
-  it is enforced today (`KTIRCheckLegality.cpp:107–117`). For `gather`,
+  it is enforced today (`KTIRCheckLegality.cpp`). For `gather`,
   `all_to_all` and `scatter` it is **falsified by measurement**, so the
   cells are `n` rather than open.
 
@@ -1040,10 +1099,10 @@ Statements:
   without producing. They divide across the three ops as 3 `gather`, 1
   `all_to_all` (the non-square one) and 12 `scatter`. The mirror case is
   measured too, once: one relayout has 32 producers and 28 consumers, so
-  four cores send and never receive (§7.4). Both `C ⊄ P` and `C ⊊ P` occur,
+  four cores send and never receive (§7.3). Both `C ⊄ P` and `C ⊊ P` occur,
   and the two sets are independent (§3.2, and §7.2's `P(g)`/`C(g)`
   independence part for why).
-  `scatter` was already resolved *no* by argument (§6.6) — the other two are
+  `scatter` was already resolved *no* by argument (§6.4) — the other two are
   now resolved *no* by measurement. `reduce_scatter` stays open, since no
   measurement reaches it (§9.1).
 - **R14 — reduce mode gate.** For `reduce`, the consumer set must either
@@ -1086,7 +1145,7 @@ with — so no consumer tile ever sees two values, which is what keeps
 **Neither regime is measured.** Every source region in the measured set has
 exactly one holder, so no measured relayout has a group with `|P(g)| > 1`
 to route within, and none has a replicated *source* to broadcast from
-(§7.6, §7.7).
+(§7.6).
 
 ```mlir
 %result_1, ..., %result_N = ktdp.inter_tile_consume(%future)
@@ -1100,8 +1159,8 @@ refinement (§3.4): there is only one value to receive, so it changes when
 each consumer unblocks and nothing else. With **several** producers per
 group it also names the sender, and R8 then requires it — each consumer
 tile must be paired with exactly one producer. That is the routing regime,
-which is what lets `consume` express per-tile pairing (§7.7.1) and
-one-to-one permutation exchange (§7.7.2). **R8's "one producer" is per
+which is what lets `consume` express per-tile pairing and
+one-to-one permutation exchange (§7.6.2). **R8's "one producer" is per
 consumer tile, not per group**, and the routing regime is exactly the case
 where the two differ (§5).
 
@@ -1111,12 +1170,12 @@ partial to exactly one other tile and receives exactly one — XLA's
 `CollectivePermute`, JAX's `lax.ppermute`, MPI's `MPI_Sendrecv`. This
 document expresses the pattern without giving it an op, deliberately: the
 op would be `consume` with a rule attached. The name is used here and in
-§7.7.2 so that a reader looking for a permutation primitive finds where it
+§7.6.2 so that a reader looking for a permutation primitive finds where it
 lives. The artifact of §7.1 can express it directly — identical piece
 geometry on both sides with different `memId` — so the pattern is
-*expressible*, though no measured relayout is one (§7.7). It does not
+*expressible*, though no measured relayout is one (§7.6.2). It does not
 overlap `all_to_all`, which splits partials rather than moving them whole
-(§6.5).
+(§6.6).
 
 Delivering to a consumer tile from more than one
 producer is never legal here — with no combiner and a result the size of
@@ -1129,9 +1188,9 @@ set free, no dim attribute, combiner region and `identity` per §3.5.
 
 **Result type.** `T_r_i == T_p_i` — no rank reduction. An earlier draft
 collapsed the within-group tile axes; the implementation deliberately does
-not (`KTDP.td:197`), because the partial already carries that axis and
+not (`KTDP.td`), because the partial already carries that axis and
 keeping it makes the op simpler: result, partial and `identity` are then one
-type, tied declaratively (`KTDP.td:168-174`) rather than by a shape
+type, tied declaratively (`KTDP.td`) rather than by a shape
 computation. This is also what makes `reduce` transparent under
 physicalization (§9.3).
 
@@ -1152,12 +1211,81 @@ Consumer set = producer set is all-reduce; a single consumer per group is
 reduce-to-one. Both are supported today; a strict multi-tile subset is
 not (R14).
 
-**No instance of this op is measured** (§7.8), so the combiner region stays
+**No instance of this op is measured** (§7.7.1), so the combiner region stays
 general on the strength of §3.5 alone: any pure region the user agrees is
 associative, with a matching `identity`. Whether a given combiner has a
 lowering path is a lowering concern, not an op-surface one.
 
-### 6.3 `ktdp.inter_tile_reduce_scatter` — reduction then split
+### 6.3 `ktdp.inter_tile_gather` — ordered assembly
+
+`combine = none`, `placement = concat`, all tiles produce, consumer set
+free, `gather_dimensions`, no region, no identity.
+
+**Not an index-vector gather.** The name is the collective's, not
+`tensor.gather`'s: this op assembles contributions by *position* (§3.3),
+and no operand of it is a set of indices. The artifact agrees — nothing in
+it can carry an index operand at all (§7.1), so an index-vector gather is a
+different artifact entirely, not a variant of this one.
+
+**`gather_dimensions`** (`i64` array) — axes of `T_p` along which the
+producers' partials are concatenated, in ascending producer local-index
+order (§3.3). A multi-axis set assembles by the per-axis odometer of §3.3,
+listed axes ordered slowest- to fastest-varying; §7.3 supplies a measured
+three-axis case.
+
+**Result type.** `T_g_i` is `T_p_i` with the extents along
+`gather_dimensions` multiplied by per-axis factors whose product is `P`
+(R12). For a single-axis list that determines the type; for a multi-axis
+list the type is declared and R12 checks it (§4).
+
+```mlir
+%gathered_1, ..., %gathered_N = ktdp.inter_tile_gather(%future)
+    consumer_tiles_per_group         = <affine-set>,
+    gather_dimensions                = <i64-array>,
+    producer_dependency_per_consumer = <affine-set>   // optional; default: all producers
+    : !ktdp.tile_future<(T_p_1, ..., T_p_N), groups = #groups> -> T_g_1, ..., T_g_N
+```
+
+One consumer per group is a plain gather; the full group as consumer set
+is all-gather — the same op with a wider set (§1.2), not a separate op.
+With `producer_dependency_per_consumer` present the assembly is a partial
+(segmented) gather over each consumer's declared subset, subject to
+R5–R7.
+
+### 6.4 `ktdp.inter_tile_scatter` — ordered split
+
+`combine = none`, `placement = split`, one producer per group (R8),
+consumer set free, `scatter_dimensions`, no region, no identity.
+
+**`scatter_dimensions`** (`i64` array) — axes of `T_p` along which the
+single producer's tensor is partitioned into `C` equal shares (R9), one
+per consumer in ascending consumer local-index order, by the
+per-axis odometer of §3.3.
+
+**Result type.** `T_s_i` is `T_p_i` with the `scatter_dimensions` extents
+divided by per-axis factors whose product is `C` (§4). All measured
+scatters are single-axis, where this is just `÷ C` on the one axis (§7.4).
+
+```mlir
+%scattered_1, ..., %scattered_N = ktdp.inter_tile_scatter(%future)
+    consumer_tiles_per_group = <affine-set>,
+    scatter_dimensions       = <i64-array>
+    : !ktdp.tile_future<(T_p_1, ..., T_p_N), groups = #groups> -> T_s_1, ..., T_s_N
+```
+
+**No `producer_dependency_per_consumer`.** With a single producer per
+group there is exactly one producer to wait for, so full-barrier and
+per-tile synchronization collapse to the same thing; the attribute would
+be degenerate. R3–R7 are therefore `n/a` for this op (§5).
+
+**Consumers need not be producers.** A consumer tile that does not appear
+in `producer_tiles_per_group` simply receives its slice; unlike a partial
+gather or a reduce there is nothing for a non-producing consumer to
+contribute or miss, so no coverage obligation arises. For a pure split
+the consumer set is unconstrained relative to the producer set — which
+resolves §9.1 for `scatter`, and only for `scatter`.
+
+### 6.5 `ktdp.inter_tile_reduce_scatter` — reduction then split
 
 `combine = fold`, `placement = split`, all tiles produce, consumer set
 free, `scatter_dimensions`, combiner region and `identity` per §3.5.
@@ -1183,43 +1311,7 @@ and the same split apply to all roles.
 }
 ```
 
-### 6.4 `ktdp.inter_tile_gather` — ordered assembly
-
-`combine = none`, `placement = concat`, all tiles produce, consumer set
-free, `gather_dimensions`, no region, no identity.
-
-**Not an index-vector gather.** The name is the collective's, not
-`tensor.gather`'s: this op assembles contributions by *position* (§3.3),
-and no operand of it is a set of indices. The artifact agrees — nothing in
-it can carry an index operand at all (§7.1), so an index-vector gather is a
-different artifact entirely, not a variant of this one.
-
-**`gather_dimensions`** (`i64` array) — axes of `T_p` along which the
-producers' partials are concatenated, in ascending producer local-index
-order (§3.3). A multi-axis set assembles by the per-axis odometer of §4,
-listed axes ordered slowest- to fastest-varying; §7.4 supplies a measured
-three-axis case.
-
-**Result type.** `T_g_i` is `T_p_i` with the extents along
-`gather_dimensions` multiplied by per-axis factors whose product is `P`
-(R12). For a single-axis list that determines the type; for a multi-axis
-list the type is declared and R12 checks it (§4).
-
-```mlir
-%gathered_1, ..., %gathered_N = ktdp.inter_tile_gather(%future)
-    consumer_tiles_per_group         = <affine-set>,
-    gather_dimensions                = <i64-array>,
-    producer_dependency_per_consumer = <affine-set>   // optional; default: all producers
-    : !ktdp.tile_future<(T_p_1, ..., T_p_N), groups = #groups> -> T_g_1, ..., T_g_N
-```
-
-One consumer per group is a plain gather; the full group as consumer set
-is all-gather — the same op with a wider set (§1.2), not a separate op.
-With `producer_dependency_per_consumer` present the assembly is a partial
-(segmented) gather over each consumer's declared subset, subject to
-R5–R7.
-
-### 6.5 `ktdp.inter_tile_all_to_all` — split and reassemble
+### 6.6 `ktdp.inter_tile_all_to_all` — split and reassemble
 
 `combine = none`, `placement = permute`, all tiles produce, all tiles
 consume, both `split_dimensions` and `concat_dimensions`, no region, no
@@ -1231,14 +1323,14 @@ along which each consumer concatenates the chunks it received, in
 ascending producer local-index order (R12). Both are flattened in list
 order per §4. The two sets may in principle be equal (a pure ownership
 transpose along one axis set), but **every measured all-to-all splits and
-concatenates *different* axes** (§7.3), so the equal case is unattested.
+concatenates *different* axes** (§7.5), so the equal case is unattested.
 
 **Cardinalities.** `|P(g)| = K` and `|C(g)| = M` are each uniform across
 groups (R6, R7) and **need not be equal to each other**. The `all` cells of
 §1.1 assert matching cardinalities, not identical tile sets and not
 `M == K`; §7.2's `P(g)`/`C(g)` independence part shows measured groups whose
 producer and consumer
-sets are wholly disjoint, and §7.3.2 a measured movement with `K = 2`
+sets are wholly disjoint, and §7.5.2 a measured movement with `K = 2`
 against `M = 4`. So neither `P == C` nor `P(g) == C(g)` may be assumed.
 
 **Result type.** `T_c_i` is `T_p_i` with the `split_dimensions` extents
@@ -1254,7 +1346,7 @@ not; when `P ≠ C` neither is.
 `P` contributions at `concat_dimensions` boxes `0 … P-1` in ascending `l_p`
 order. "Box" rather than "slice" because for a multi-axis list the
 contribution is a rectangular sub-box and not a contiguous interval of the
-flattened space (§4).
+flattened space (§3.3).
 
 ```mlir
 %out_1, ..., %out_N = ktdp.inter_tile_all_to_all(%future)
@@ -1265,23 +1357,13 @@ flattened space (§4).
     : !ktdp.tile_future<(T_p_1, ..., T_p_N), groups = #groups> -> T_c_1, ..., T_c_N
 ```
 
-**Why it is a first-class op rather than a composition.** All-to-all
-requires every tile to be simultaneously a producer of `C` distinct
-slices and a consumer of `P` distinct slices:
-
-```text
-tile 0: A[0][0..3]     tile 0: A[0][0] A[1][0] A[2][0] A[3][0]
-tile 1: A[1][0..3]     tile 1: A[0][1] A[1][1] A[2][1] A[3][1]
-tile 2: A[2][0..3] --> tile 2: A[0][2] A[1][2] A[2][2] A[3][2]
-tile 3: A[3][0..3]     tile 3: A[0][3] A[1][3] A[2][3] A[3][3]
-```
-
-Neither existing copy-only op admits this. `gather` delivers the *same*
-assembled tensor to every consumer (§3.7) and cannot give consumers
-different content. `scatter` permits exactly one producer per group (R8)
-and cannot have every tile contribute. Composing them materializes the
-full concatenation on every tile — wrong data volume and wrong
-communication pattern.
+**Why it is a first-class op rather than a composition.** All-to-all needs
+every tile to be at once a producer of `C` distinct slices and a consumer of
+`P` distinct slices, which neither copy-only op admits — `gather` delivers
+the same assembled tensor to every consumer (§3.7) and `scatter` permits one
+producer per group (R8) — and generalizing `scatter` to `P > 1` by adding a
+concat axis set and lifting R8 *is* `all_to_all` under another name, with the
+multi-producer wait hidden inside an op that then has two regimes.
 
 The only faithful composition is `C` separate `produce`+`scatter` pairs
 (one per source tile, forced by R2) followed by a per-consumer `concat`
@@ -1291,53 +1373,9 @@ useful *reference lowering* — it is why `all_to_all` needs no new
 synchronization (§3.6) and no new verification beyond `scatter` ∪
 `gather` (R9 and R5–R7/R12 respectively) — but it is the wrong surface
 form. Note also that **one-to-one permutation** of whole partials is
-already expressible as `consume` + a bijective dependency set (§7.7.2);
+already expressible as `consume` + a bijective dependency set (§7.6.2);
 `all_to_all` is only for the split-and-redistribute case, so the two
 mechanisms do not overlap.
-
-**Generalizing `scatter` to `P > 1` is not an alternative.** Adding a
-concat axis set and lifting R8 on `scatter` *is* `all_to_all` under another
-name; it hides the multi-producer wait inside `scatter` and gives that op
-two regimes. A separate op keeps one-op-one-pattern and leaves
-`scatter`'s `P == 1` contract clean.
-
-**Why not `inter_tile_shuffle`.** The artifact calls the primitive
-`shuffle`, but `shuffle` is what *several* of these patterns become rather
-than this one alone (§7), so `all_to_all` is used as the established
-collective term.
-
-### 6.6 `ktdp.inter_tile_scatter` — ordered split
-
-`combine = none`, `placement = split`, one producer per group (R8),
-consumer set free, `scatter_dimensions`, no region, no identity.
-
-**`scatter_dimensions`** (`i64` array) — axes of `T_p` along which the
-single producer's tensor is partitioned into `C` equal shares (R9), one
-per consumer in ascending consumer local-index order (§3.3), by the
-per-axis odometer of §4.
-
-**Result type.** `T_s_i` is `T_p_i` with the `scatter_dimensions` extents
-divided by per-axis factors whose product is `C` (§4). All measured
-scatters are single-axis, where this is just `÷ C` on the one axis (§7.5).
-
-```mlir
-%scattered_1, ..., %scattered_N = ktdp.inter_tile_scatter(%future)
-    consumer_tiles_per_group = <affine-set>,
-    scatter_dimensions       = <i64-array>
-    : !ktdp.tile_future<(T_p_1, ..., T_p_N), groups = #groups> -> T_s_1, ..., T_s_N
-```
-
-**No `producer_dependency_per_consumer`.** With a single producer per
-group there is exactly one producer to wait for, so full-barrier and
-per-tile synchronization collapse to the same thing; the attribute would
-be degenerate. R3–R7 are therefore `n/a` for this op (§5).
-
-**Consumers need not be producers.** A consumer tile that does not appear
-in `producer_tiles_per_group` simply receives its slice; unlike a partial
-gather or a reduce there is nothing for a non-producing consumer to
-contribute or miss, so no coverage obligation arises. For a pure split
-the consumer set is unconstrained relative to the producer set — which
-resolves §9.1 for `scatter`, and only for `scatter`.
 
 ---
 
@@ -1348,21 +1386,26 @@ reference to any artifact. This section introduces the artifact
 `torch-spyre` emits for an LX→LX movement (§7.1); gives the complete
 derivation that turns a pair of piece tables into `groups`, `P(g)`, `C(g)`,
 `producer_dependency_per_consumer` **and the choice of delivery op**
-(§7.2); and then works each pattern against it (§7.3–§7.10), measured
+(§7.2); and then works each pattern against it (§7.3–§7.7), measured
 patterns first.
 
 Each pattern subsection gives its measured evidence, the derivation of
 §7.2 applied explicitly — `Ns`, `Nd`, `#groups`, `|P|`, `|C|`, the
-membership computed from the stride vector, and whether `D` is needed — then
-an abridged instantiation and full IR where the pattern has one. Full-IR listings are
+membership computed from the numbering, and whether `D` is needed — then
+one IR listing where the pattern has one. Those listings are
 on synthetic shapes chosen to make the axis roles legible; the measured
 shapes are given alongside.
 
-**Three of the seven patterns are measured** — all-to-all (§7.3), gather
-(§7.4) and scatter (§7.5), plus the selection case of §7.10 that is not a
-delivery at all. **The other four have no measured example among the 51**:
-broadcast (§7.6, measured in separate broadcast work but by no relayout),
-permute (§7.7), reduce (§7.8) and reduce-scatter (§7.9). Each says so
+**This section orders the patterns by measured evidence weight**, heaviest
+first, and it is the only section that does: every op-keyed table elsewhere
+in this document (§1.1, §5, §6, §8, §9.3) uses §1.1's placement-grouped
+order instead.
+
+**Three of the seven patterns are measured** — gather (§7.3), scatter
+(§7.4) and all-to-all (§7.5). §7.2.1 is a further scatter, carried in §7.2
+because it is where Step 1's delivered region does visible work. **The other four have no measured example among the 51**:
+broadcast (§7.6.1, measured in separate broadcast work but by no relayout),
+permute (§7.6.2), reduce (§7.7.1) and reduce-scatter (§7.7.2). Each says so
 prominently rather than pointing at an approximation.
 
 **Scope: one artifact.** All of §7 reads a single surface — **relayouts**,
@@ -1384,38 +1427,32 @@ ops.
 
 | § | pattern | op | n | src division | dst division | `C` | `R` | measured evidence / attributes |
 |---|---|---|---|---|---|---|---|---|
-| 7.3 | All-to-all, square | `all_to_all` | 6 | `{mb:8, out:4}` | `{mb:32}` | `out` | `mb` | split `[mb]` / concat `[out]`; 8 groups, `M=K=4`. `Stcdp_QC_5` (running example), `Stcdp_QC_18`, `Stcdp_QC_30` |
-| 7.3 | All-to-all, square | `all_to_all` | 3 | `{x:8, mb:4}` | `{x:32}` | `mb` | `x` | split `[x]` / concat `[mb]`; 8 groups, `M=K=4`. `Exx2_QC_1` (membership disjoint — §7.2's `P(g)`/`C(g)` independence part) |
-| 7.3 | All-to-all, **non-square** | `all_to_all` | 1 | `{mb:16}` | `{mb:8, out:4}` | `mb` | `out` | split `[out]` / concat `[mb]`; 8 groups, **`M=4, K=2`**. `Add_QC_3` |
-| 7.4 | all-gather to every core | `gather` | 3 | `{in:2, out:8, x:2}` | `{}` | `in`,`out`,`x` | — | `gather_dimensions = [in, out, x]` — **3 axes**. `BatchMatMulV2_QC_12` |
-| 7.4 | all-gather, 4 cores idle | `gather` | 1 | `{in:32}` | `{}` | `in` | — | `gather_dimensions = [in]`; one region on 28 cores, and the one file with send-only cores. `BatchMatMulV2_QC_27` |
-| 7.4 | grouped gather, drop an axis | `gather` | 6 | `{mb:8, in:4}` | `{mb:8}` | `in` | — | `gather_dimensions = [in]` |
-| 7.4 | grouped gather, coarsen one axis | `gather` | 15 | `{mb:32}` | `{mb:8}` | `mb` | — | `gather_dimensions = [mb]` |
-| 7.4 | grouped gather, coarsen one axis | `gather` | 3 | `{mb:16}` | `{mb:8}` | `mb` | — | `gather_dimensions = [mb]`. `BatchMatMulV2_QC_0` (1 axis, `P ⊊ C`) |
-| 7.5 | pure split | `scatter` | 12 | `{y:16}` | `{y:32}` | — | `y` | `scatter_dimensions = [y]`. `Mul_QC_1` (16 groups of 2) |
-| 7.6 | Broadcast | `consume` | — | `{h:8}` on 8 cores | `{h:8}` × 4 cores | — | — | **none of the 51.** Consumer set widened to the 4 holders; the row is from separate broadcast work (PR #4061) |
-| 7.7 | Per-tile sync / permute | `consume` + `D` | — | — | — | — | — | **none of the 51.** The only patterns that need `D` at all (§7.2, Step 6) |
-| 7.8 | Reduce | `reduce` | 0 | — | — | — | — | **none of the 51.** A relayout moves ownership without combining, so no relayout is a reduce |
-| 7.9 | Reduce-scatter | `reduce_scatter` | 0 | — | — | — | — | **none of the 51**, and unmeasured elsewhere too — the one op in §6 with no measured path of any kind |
-| 7.10 | selection, not a partition | none | 1 | `{mb:8, out:4}` | *selection* | — | — | `Stcdp_QC_38` — coverage 1/512, **not a work-division pair**; §7.2 Step 7's guard row |
+| 7.2.1 | scatter over a bounded region | `scatter` | 1 | `{out:4}` | `{out:32}` | — | `out` | `scatter_dimensions = [out]`; counts taken over the delivered region, `4096` of `2097152` elements. `Stcdp_QC_38` |
+| 7.3 | all-gather to every core | `gather` | 3 | `{in:2, out:8, x:2}` | `{}` | `in`,`out`,`x` | — | `gather_dimensions = [in, out, x]` — **3 axes**. `BatchMatMulV2_QC_12` |
+| 7.3 | all-gather, 4 cores idle | `gather` | 1 | `{in:32}` | `{}` | `in` | — | `gather_dimensions = [in]`; one region on 28 cores, and the one file with send-only cores. `BatchMatMulV2_QC_27` |
+| 7.3 | grouped gather, drop an axis | `gather` | 6 | `{mb:8, in:4}` | `{mb:8}` | `in` | — | `gather_dimensions = [in]` |
+| 7.3 | grouped gather, coarsen one axis | `gather` | 15 | `{mb:32}` | `{mb:8}` | `mb` | — | `gather_dimensions = [mb]` |
+| 7.3 | grouped gather, coarsen one axis | `gather` | 3 | `{mb:16}` | `{mb:8}` | `mb` | — | `gather_dimensions = [mb]`. `BatchMatMulV2_QC_0` (1 axis, `P ⊊ C`) |
+| 7.4 | pure split | `scatter` | 12 | `{y:16}` | `{y:32}` | — | `y` | `scatter_dimensions = [y]`. `Mul_QC_1` (16 groups of 2) |
+| 7.5 | All-to-all, square | `all_to_all` | 6 | `{mb:8, out:4}` | `{mb:32}` | `out` | `mb` | split `[mb]` / concat `[out]`; 8 groups, `M=K=4`. `Stcdp_QC_5` (running example), `Stcdp_QC_18`, `Stcdp_QC_30` |
+| 7.5 | All-to-all, square | `all_to_all` | 3 | `{x:8, mb:4}` | `{x:32}` | `mb` | `x` | split `[x]` / concat `[mb]`; 8 groups, `M=K=4`. `Exx2_QC_1` (membership disjoint — §7.2's `P(g)`/`C(g)` independence part) |
+| 7.5 | All-to-all, **non-square** | `all_to_all` | 1 | `{mb:16}` | `{mb:8, out:4}` | `mb` | `out` | split `[out]` / concat `[mb]`; 8 groups, **`M=4, K=2`**. `Add_QC_3` |
+| 7.6.1 | Broadcast | `consume` | — | `{h:8}` on 8 cores | `{h:8}` × 4 cores | — | — | **none of the 51.** Consumer set widened to the 4 holders; the row is from separate broadcast work (PR #4061) |
+| 7.6.2 | Per-tile sync / permute | `consume` + `D` | — | — | — | — | — | **none of the 51.** The only patterns that need `D` at all (§7.2, Step 6) |
+| 7.7.1 | Reduce | `reduce` | 0 | — | — | — | — | **none of the 51.** A relayout moves ownership without combining, so no relayout is a reduce |
+| 7.7.2 | Reduce-scatter | `reduce_scatter` | 0 | — | — | — | — | **none of the 51**, and unmeasured elsewhere too — the one op in §6 with no measured path of any kind |
 
 The `n` column sums to 51 across the relayout rows and reproduces exactly:
 applying Step 7 mechanically to all 51 files yields 28 `gather`, 10
-`all_to_all`, 12 `scatter` and 1 guard-row selection. The broadcast row is
+`all_to_all` and 13 `scatter`, with no guard row firing. The broadcast row is
 the one row **not** from the 51 — no measured relayout is a broadcast,
 because every source region has a single holder and replication appears only
-on the destination side (§7.6). It is kept because the pattern is measured
+on the destination side (§7.6.1). It is kept because the pattern is measured
 elsewhere and is expressible in the artifact.
 
-**Which ops this requires.** Four of the six delivery ops, with these
-arities:
-
-| Op | measured files | arity needed |
-|---|---|---|
-| `inter_tile_gather` | 28 | up to **3 axes** |
-| `inter_tile_all_to_all` | 10 | 1 axis each side, but **non-square** `M ≠ K` |
-| `inter_tile_scatter` | 12 | 1 axis |
-| `inter_tile_consume` | broadcast work | — |
+**Which ops this requires, with what arity, and the resulting
+implementation order, are §8's concern**; this section stays with the
+evidence.
 
 **`inter_tile_reduce` and `inter_tile_reduce_scatter` have no relayout
 expression — structurally, not incidentally.** It is not that a relayout
@@ -1425,12 +1462,7 @@ Consistently, **no output byte in the measured set has more than one
 producer** (0/51; input pieces are a disjoint exact tiling in 51/51), so the
 question of what to do with two contributions never arises. The consequence
 is about evidence, not expressiveness: nothing in §7 can attest either
-`fold` op, and §7.8 and §7.9 say so rather than approximating one.
-
-Two consequences for implementation order. `gather` carries the most
-measured weight *and* the widest arity, so its multi-axis path cannot be
-deferred. And `all_to_all`'s non-square case is measured, not hypothetical,
-so `P == C` is not a safe simplifying assumption.
+`fold` op, and §7.7 says so rather than approximating one.
 
 **Two negative results the census also establishes.**
 `producer_dependency_per_consumer` is **never needed**: every group of all
@@ -1455,7 +1487,11 @@ single SDSC **data DSC** whose `op` names `STCDPOpLx` — the artifact
 `torch-spyre` emits
 ([torch-spyre PR #4300](https://github.com/torch-spyre/torch-spyre/pull/4300)).
 Knowing its shape is what makes the design decisions of §1–§6
-non-arbitrary. This subsection describes the artifact and nothing else;
+non-arbitrary. (The artifact calls the primitive a *shuffle*. This document
+does not reuse that name for any one op, because *shuffle* is what several of
+these patterns become rather than one of them alone — hence `all_to_all`,
+the established collective term, in §6.6.) This subsection describes the
+artifact and nothing else;
 how anything downstream of `torch-spyre` consumes it is out of scope and
 is not relied on anywhere in this document.
 
@@ -1477,7 +1513,7 @@ same `ldsName_` in all 51 measured relayouts, so they cannot be told apart
 by name.
 
 An `LdsInfo` is one side's description of the whole tensor plus its
-decomposition into pieces. Abridged from the running example of §7.3,
+decomposition into pieces. Abridged from the running example of §7.5,
 input side:
 
 ```json
@@ -1522,7 +1558,7 @@ vector and no coordinate set anywhere in it, so all the geometry is
 `start + size - 1`. An index-vector gather is not expressible in this
 artifact at all: nothing in it can carry an index operand. This matters
 for §4 — no delivery op needs to express anything richer than an offset
-and an extent, which is why none of them carries an offset at all (§7.10).
+and an extent, which is why none of them carries an offset at all (§3.8).
 
 **`PlacementInfo.memId` is a list of core ids**, and it is the only thing
 that makes a relayout a communication. Every `PlacementInfo` across the 51
@@ -1557,6 +1593,36 @@ across the 51 files are `[[full_extent, 0]]`**, i.e. pitch equals width.
 Emitting `[[extent, 0]]` per dim therefore reproduces every measured file
 exactly.
 
+### 7.2 From two piece tables to the attributes
+
+The artifact is two piece tables. Everything the delivery ops need —
+`groups`, `P`, `C`, `D`, and which op — is derivable from them by a fixed
+procedure. What is *not* derivable from the divisions alone, and must
+therefore be read, is how core ids are numbered: a **digit order**, a scale
+`σ`, and an offset `base`.
+
+**Symbols.** Five quantities are read and four are derived; keeping the two
+apart is what tells an emitter which measurements it has to take.
+
+| | symbol | meaning |
+|---|---|---|
+| read | `Ns(a)`, `Nd(a)` | distinct slice counts along axis `a`, source and destination |
+| read | digit order | the cut axes ordered fastest-varying first, per side |
+| read | `σ` | core-id scale, per side |
+| read | `base` | core-id offset, per side |
+| derived | `w_a` | `∏ Ns(b)` over axes `b` before `a` in the digit order |
+| derived | `x_a` | the slice index along `a` |
+| derived | `G_a` | `gcd(Ns(a), Nd(a))` — the groups axis `a` contributes |
+| derived | `k_a` | `Ns(a) / G_a` — the within-group extent along `a` |
+
+`σ` and `base` are properties of a **side**, not of an entry: 13 entries have
+`σ = 2` on the source and `σ = 1` on the destination, so there is no single
+renumbering that normalizes both. That is why they are read rather than
+assumed away.
+
+**What must be read, and what must not be trusted.** Four preconditions of
+the derivation, read off the container of §7.1.
+
 **Axis names versus axis indices.** The artifact speaks axis *names*
 (`mb`, `in`, `out`, `x`, `y`, …) — the vocabulary the ownership tables and
 every axis set in §7 use. The op attributes of §6 are `i64` arrays of axis
@@ -1570,12 +1636,12 @@ the `T_p` axis order it uses.
 there is evidence why.** It enumerates the axes present, but which axis order
 a frontend gives `T_p` is that frontend's choice, so long as the dim
 attributes index into it consistently. Concretely, `layoutDimOrder_`
-restricted to the cut axes **disagrees with the digit order implied by the
-core-strides of §7.2's Step 1** on two of three files where the comparison is
+restricted to the cut axes **disagrees with the digit order Step 1 reads off
+the pieces** on two of three files where the comparison is
 non-trivial: it agrees in `Stcdp_QC_18` (`['x','mb']` against the implied
 `(x, mb)`), and is reversed in `Exx2_QC_1` (`['mb','out']` against
 `(out, mb)`) and `BatchMatMulV2_QC_15` (`['mb','in']` against `(in, mb)`).
-An implementer must therefore not take `layoutDimOrder_` for a stride order.
+An implementer must therefore not take `layoutDimOrder_` for a digit order.
 
 **The stick-level assumption holds.** 20 of the 51 files coarsen or refine
 the sticked axis, and every piece size on it is an exact stick multiple. No
@@ -1586,100 +1652,159 @@ sub-stick extent. (Descriptive.)
 op here.** In KTIR an address is named by `ktdp.construct_memory_view`,
 upstream of the partial.
 
-### 7.2 From two piece tables to the attributes
-
-The artifact is two piece tables. Everything the delivery ops need —
-`groups`, `P`, `C`, `D`, and which op — is derivable from them by a fixed
-procedure. The one thing not derivable from the divisions alone is the
-stride vector, and that is what must be read.
-
 **Step 1 — read the two grids.** Per side, collect the **distinct boxes**
 `(dimToStartCordinate, dimToSize_)`. Per axis `a`, let `Ns(a)`/`Nd(a)` be the
 count of distinct slices that side's table contains along `a` — an axis
 absent from an entry counts 1. Boxes must be counted **distinct**, not as
 `PieceInfo` entries: replication has two encodings — a multi-entry `memId`
 on one box, or several entries with identical boxes — and counting entries
-would give the wrong count under the second encoding. Also read the
-**stride vector and base**, the radix map
-`core = base + Σ_a stride_a · sliceIndex_a`, for whichever side has a
-single holder per box; `layoutDimOrder_` does not reliably give the digit
-order, so the vector must be measured from the pieces (§7.1).
+would give the wrong count under the second encoding.
 
-Then the **participation guard**: if any distinct region overlaps nothing
-on the other side, stop — this is a selection, not a delivery (§7.10). One
-measured entry has 28 of 32 source regions participating in no overlap;
-counting those as producers would overcount by 8×.
+Then read the **numbering** — the digit order, `σ` and `base` — for whichever
+side has a single holder per box. The core ids are a mixed-radix odometer over
+the slice grid:
 
-**Step 2 — group count.** `#groups = ∏_a gcd(Ns(a), Nd(a))`. An axis cut on
-only one side contributes `gcd(n, 1) = 1` and separates nothing, so **axes
-compose multiplicatively and never conflict**. Running example (§7.3):
-`mb` gives `gcd(4,1) = 1`, `x` gives `gcd(8,32) = 8` — 8 groups from `x`
-alone, and `mb` cannot conflict with `x`. Verified: this formula equals the
-true connected-component count of the overlap graph in all 51 of 51
-measured relayouts.
+```
+core = base + σ · Σ_a w_a · x_a
+```
 
-At most one axis is ever group-determining: 47 of the 51 have exactly one
-axis with `gcd > 1`; the other 4 have none and are a single group. So the
-group index **is** that axis's block index, and no multi-axis decode of `g`
-is needed. A case with two group-determining axes would need a mixed-radix
+Only three things here are read: which axis varies fastest (the digit order),
+the scale `σ`, and the offset `base`. The per-axis weights `w_a` follow from
+the digit order and the radices, so they are derived, not measured. Verified:
+this form is exact on **74 of 74** single-holder sides, with `σ = 1` on 58 of
+them and `σ = 2` on 16; `base = 0` throughout the 51, though a nonzero `base`
+is attested elsewhere, so an emitter must not assume zero.
+
+`layoutDimOrder_` does not reliably give the digit order, so it must be
+measured from the pieces (§7.1). Where a box has several holders the map is
+set-valued and no `σ` exists for that side at all.
+
+**Count over the delivered region, not over the tensor.** The delivered
+region is the bounding box of the destination table — the part of the tensor
+the movement actually writes. Its anchor is the destination boxes'
+`dimToStartCordinate`, the same coordinate `ktdp.construct_access_tile`
+carries upstream (§2.2), so this asks for nothing new: it is the offset the
+delivery ops deliberately do not take. Restrict both tables to the boxes that
+intersect that region before counting slices.
+
+The restriction matters whenever a movement writes less than the whole
+tensor. One measured entry writes a single row — `1/512` of its tensor.
+Counted over the tensor its source has 8 `mb` slices; counted over the
+delivered region it has one, because seven of the eight lie outside anything
+written. The restricted counts are the ones that describe the movement: they
+give 4 groups of one producer and eight consumers, matching the overlap graph
+exactly, where the unrestricted counts overstate the producers eightfold.
+Restriction changes the counts on 1 of the 51 measured relayouts and leaves
+the other 50 untouched.
+
+**Step 2 — group count.** `#groups = ∏_a G_a`, where `G_a = gcd(Ns(a),
+Nd(a))`. An axis cut on only one side has `G_a = gcd(n, 1) = 1` and separates
+nothing, so **axes compose multiplicatively and never conflict**. Running
+example (§7.5): `mb` gives `G_mb = gcd(4,1) = 1`, `x` gives
+`G_x = gcd(8,32) = 8` — 8 groups from `x` alone, and `mb` cannot conflict with
+`x`. Verified: this formula equals the true connected-component count of the
+overlap graph in all 51 of 51 measured relayouts.
+
+An axis is **group-determining** when `G_a > 1` and **free** when `G_a = 1`.
+At most one axis is ever group-determining: 47 of the 51 have exactly one, the
+other 4 have none and are a single group. So the group index **is** that one
+axis's block index — no per-axis decode of `g` is needed, and no block-index
+symbol either. A case with two group-determining axes would need a mixed-radix
 decode of `g`, and is unmeasured.
 
-**Step 3 — invert the radix map.** The strides are odometer weights —
-sorted strides multiply up by the radices — so the map inverts digit by
-digit:
+**Step 3 — invert the numbering.** Two moves. First restrict to the tiles the
+map actually reaches, then decode those:
 
 ```
-x_a(i) = ((i - base) floordiv stride_a) mod N_a
+(i - base) mod σ == 0             membership: i lies in the map's image
+t   = (i - base) floordiv σ       on members, this is exact division
+x_a = (t floordiv w_a) mod Ns(a)  plain mixed-radix decode of t
 ```
 
-Each `x_a(i)` is an affine expression in `i` using only `floordiv`/`mod` by
-constants, so it is legal inside an `IntegerSet`. This is the step that
-carries Step 1's radix map from slice-index space into tile-id space, which
-is where the attributes live.
+**The first line is a filter, not an identity.** The odometer is a bijection
+from slice-index tuples onto a *subset* of the tile ids — its image — so
+`x_a` is only meaningful there, and this conjunct is the membership test for
+it. When `σ = 1` it is vacuously true and drops out, which is the common case
+(58 of 74 sides). When `σ ≠ 1` it is load-bearing: `Add_QC_3` numbers its
+producers `core = 2 · x_mb`, and without the conjunct tile 1 decodes to
+`t = 0`, `x_mb = 0` and joins `P(0)` — but core 1 holds nothing. All 8 of its
+groups would gain a spurious odd tile.
 
-**Step 4 — emit one constraint per cut axis.** With `k_a = N_a /
-gcd(Ns(a), Nd(a))` the within-group extent along `a`, and `b(g)` the
-group-determining axis's block index (`= g`, by Step 2):
+An `IntegerSet` has no exact division, only `floordiv` and `mod`, so `t` is
+written with `floordiv`. That is defined for every `i` but coincides with the
+true slice index only on members; for a non-member the conjunction is already
+false, so the set is still exactly right.
+
+Every line is an affine expression in `i` using only `floordiv`/`mod` by
+constants, so all of it is legal inside an `IntegerSet`. This is the step that
+carries Step 1's numbering from slice-index space into tile-id space, which is
+where the attributes live. Note this odometer is a different one from §3.3's:
+it reads core identity back off a measured artifact, where §3.3's orders data
+slices for placement.
+
+**Step 4 — constrain the group-determining axis.** Only that axis produces a
+constraint. With `k_a = Ns(a) / G_a`, and the group index serving directly as
+its block index (Step 2):
 
 ```
-b(g) · k_a  ≤  x_a(i)  <  b(g) · k_a + k_a
+k_a · g  ≤  x_a(i)  <  k_a · (g + 1)
 ```
 
-Three collapses do the real work:
+A free axis (`G_a = 1`) has `k_a = Ns(a)`, so its constraint is
+`0 ≤ x_a(i) < Ns(a)` — true by construction of the decode, hence dropped. The
+free axes are not absent from the result, though: **they set its extent.**
+`|P(g)| = ∏_a k_a`, and in the running example that product is
+`k_mb · k_x = 4 · 1 = 4` — the 4 comes entirely from `mb`, the axis that
+contributed no constraint. Group-determining axes give the constraints, free
+axes give the width.
 
-- `k_a = 1` → the constraint becomes an equality `x_a(i) == b(g)`
-- `gcd = 1` → the axis is not group-determining, the constraint is
-  vacuous, **drop the axis**
-- smallest stride `> 1` → add `(i - base) mod stride_min == 0`
-
-Cardinality falls out here: `|P(g)| = ∏_a k_a`. If the group sits on a
-**high-order** digit the set collapses to a contiguous range; if it sits on
-a **low-order** digit it is a coset and needs `mod`. `mod` is a valid
-affine-set constraint and is accepted by `ktdp.inter_tile_produce` today —
-verified by round-trip through the built `ktir-opt` — so a coset needs no
-fallback and no design change.
+**Range or coset — one arithmetic fact decides it.** For the *slowest* digit
+`t floordiv w_a` already lies in `[0, Ns(a))`, so its `mod` is redundant and
+the constraint reduces to a contiguous range. For any earlier digit the `mod`
+is live and the set is a coset. `Stcdp_QC_5` groups on its slowest digit and
+gets `4g ≤ i ≤ 4g+3`; `Exx2_QC_1` groups on its fastest and gets
+`(i - g) mod 8 == 0`. `mod` is a valid affine-set constraint and is accepted
+by `ktdp.inter_tile_produce` today — verified by round-trip through the built
+`ktir-opt` — so a coset needs no fallback and no design change.
 
 The four measured shapes below have all been verified to parse and
 round-trip:
 
-| entry / side | stride vector (radix) | resulting affine set |
-|---|---|---|
-| `Stcdp_QC_5` in | `mb:1(4), x:4(8)`; group on `x`, high digit | `(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)` |
-| `Exx2_QC_1` in | `mb:1(8), out:8(4)`; group on `mb`, low digit | `(i)[g] : ((i - g) mod 8 == 0, i >= 0, -i + 31 >= 0)` |
-| `BatchMatMulV2_QC_12` in | `x:1(2), in:2(2), out:4(8)`; group on `out` | `(i)[g] : ((i floordiv 4) mod 8 - g == 0, i >= 0, -i + 31 >= 0)` |
-| `Add_QC_3` in | `mb:2(16)`, base 0 | `(i)[g] : (i mod 2 == 0, (i floordiv 2) mod 16 - g == 0, i >= 0, -i + 31 >= 0)` |
+| entry / side | digit order (radix), `σ` | `G_a > 1` | `#groups`, `k_a` | resulting affine set |
+|---|---|---|---|---|
+| `Stcdp_QC_5` in | `mb`(4) then `x`(8), `σ=1` | `x` — slowest | 8, `k_x=1` | `(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)` |
+| `Exx2_QC_1` in | `mb`(8) then `out`(4), `σ=1` | `mb` — fastest | 8, `k_mb=1` | `(i)[g] : ((i - g) mod 8 == 0, i >= 0, -i + 31 >= 0)` |
+| `BatchMatMulV2_QC_12` in | `x`(2), `in`(2), `out`(8), `σ=1` | **none** | 1 | `(i)[g] : (g == 0, i >= 0, -i + 31 >= 0)` |
+| `Add_QC_3` in | `mb`(16), **`σ=2`** | `mb`, `G_mb=8` | 8, `k_mb=2` | `(i)[g] : (i mod 2 == 0, (i floordiv 2) - 2*g >= 0, -(i floordiv 2) + 2*g + 1 >= 0, i >= 0, -i + 31 >= 0)` |
 
-**Step 5 — repeat on the output side for `C(g)`.** Same `g`, but the
-output side's `Nd(a)`, stride vector and base. Nothing here is shared with
-Steps 1–4 beyond `g` itself — the two sides' stride vectors are independent
-inputs, which is why `P(g)` and `C(g)` need not relate (below).
+Two of these rows are worth reading against Step 2, because the digit order
+alone does not settle which axis is group-determining — `G_a` needs *both*
+sides.
+
+`BatchMatMulV2_QC_12`'s destination is uncut, so every `G_a = gcd(Ns(a), 1) = 1`
+and **no axis is group-determining**: one group holding all 32 tiles, with the
+digit order playing no part in the set at all. It is an all-gather to every
+core (§7.3), and a set built from the source's slowest digit would wrongly
+describe 8 groups.
+
+`Add_QC_3` has `G_mb = gcd(16, 8) = 8`, not 16, so `k_mb = 2` and each group
+holds **two** tiles — `{4g, 4g+2}` after `σ = 2` — not one. That matches the
+census's `K = 2` (§7.5.2). Here `σ = 2` is what puts `i mod 2 == 0` in the set,
+and per Step 3 it is the membership filter rather than a simplification of the
+decode beside it.
+
+**Step 5 — repeat on the output side for `C(g)`.** Same `g`, but the output
+side's `Nd(a)`, digit order, `σ` and `base`. Nothing is shared with Steps 1–4
+beyond `g` itself — each side's numbering is read independently, which is why
+`P(g)` and `C(g)` need not relate (below). 13 entries make the point
+concretely: `σ = 2` on the source against `σ = 1` on the destination.
 
 **Step 6 — is `D` needed?** `producer_dependency_per_consumer` is required
 exactly when the within-group overlap graph is not complete bipartite. It
 is complete `K(|P(g)|, |C(g)|)` in every group of all 51 measured
 relayouts, so no measured relayout needs `D`, and the default full-barrier
 reading of §3.4 always applies to them. Its only uses are the routing and
-permutation patterns of §7.7, which have no measured example.
+permutation patterns of §7.6.2, which have no measured example.
 
 **Step 7 — which delivery op.** An axis is **coarsened** when `Ns(a) >
 Nd(a)` (fewer, larger pieces after the move — data must be *assembled*
@@ -1690,7 +1815,7 @@ fires:
 
 | # | condition | result |
 |---|---|---|
-| — | `prod(Ns(a)) != len(src_regions)` or `prod(Nd(a)) != len(dst_regions)`, or either side's distinct regions do not cover the tensor | **not a work-division pair** — enumerate regions instead. Check first |
+| — | `prod(Ns(a)) != len(src_regions)` or `prod(Nd(a)) != len(dst_regions)`, or either side's distinct regions do not cover the **delivered region** of Step 1 | **not a work-division pair** — enumerate regions instead. Check first; fires on no measured relayout |
 | — | any axis ragged (non-uniform overlap) | *insufficient information* — no single op has uniform dependency-set cardinality (R6) |
 | 1 | `Coarse = ∅` and `Refine = ∅` | regions identical: `no op needed` if every core's region is its own, else `inter_tile_consume` — a **relocation**, or a **broadcast** where destination regions are shared |
 | 2 | `Coarse = ∅`, `Refine ≠ ∅` | `inter_tile_scatter`, `scatter_dimensions = Refine` |
@@ -1703,64 +1828,352 @@ region has several holders, since R8 gives each consumer tile exactly one
 source and the tables do not say which holder transmits (§9.2).
 
 The coverage clause of the first guard row sums each **distinct** region's
-element count against the element count of the value being delivered — not
-per core (an all-gather's replicated destination would overshoot), and
-against the delivered value rather than the original tensor, so a
-select-then-deliver does not trip the guard it exists to satisfy (§7.10).
-Nothing in the artifact requires either side to cover the tensor; the guard
-row is this document's modelling choice that a selection is not a delivery,
-and `Stcdp_QC_38` (§7.10) is the one measured file that fails it — the
-cardinalities of Step 4 are wrong on that file, which is why the guard runs
-first.
+element count against the delivered region of Step 1 — not per core, since an
+all-gather's replicated destination would overshoot. Stated over the delivered
+region rather than over the tensor it is very nearly definitional, because that
+region *is* the destination's bounding box; what it still catches is a
+destination table with a hole inside its own hull. No measured relayout has
+one, so the guard rows are an input-validity check here and classify nothing.
+Bounded extents are not what they exist for: a movement that writes part of a
+tensor is an ordinary delivery over a smaller region, which is what Step 1's
+restriction makes it.
 
 Row 3's `prod(Nd(a)) == num_cores` is the one irreducibly global test:
 holding the division fixed and varying the core count changes the op, so no
 per-axis quantity can see it. Verified: applying these rows mechanically to
-all 51 measured relayouts yields 28 `gather`, 10 `all_to_all`, 12 `scatter`
-and 1 guard-row selection, matching §7's preamble census.
+all 51 measured relayouts, with Step 1's counts, yields 28 `gather`,
+10 `all_to_all` and 13 `scatter`, with **no guard row firing on any of them**.
 
-**`P(g)` and `C(g)` are independent.** Each side has its own stride vector
-(Step 1), so the two sets carry no required relation; every relation below
-is measured, on files with otherwise identical division shapes:
+**`P(g)` and `C(g)` are independent — the evidence for §3.2's rule.** Every
+relation below is measured, on files with otherwise identical division
+shapes:
 
 | file | `g` | `P(g)` | `C(g)` | relation |
 |---|---|---|---|---|
 | `Stcdp_QC_18` | 0 | `{0,1,2,3}` | `{0,1,2,3}` | `P == C` |
 | `Exx2_QC_1` | 0 | `{0,8,16,24}` | `{0,1,2,3}` | overlap `{0}` |
 | `Exx2_QC_1` | 1 | `{1,9,17,25}` | `{4,5,6,7}` | **disjoint** |
-| `Add_QC_3` | 1 | `{20,22}` | `{5,13,21,29}` | **disjoint** |
+| `Add_QC_3` | 5 | `{20,22}` | `{5,13,21,29}` | **disjoint** |
 | `BatchMatMulV2_QC_0` | 0 | `{0,2}` | `{0,1,2,3}` | `P ⊊ C` |
 
-This is why R13 does not hold for the copy-only ops. **Confinement** —
-every edge runs from a core in `P(g)` to a core in `C(g)` for the same `g`
-— is a different property: it is forced (§3.2), and it does not imply any
-intersection between the two sets.
+This is why R13 does not hold for the copy-only ops. Confinement — a
+different property, and one that does not imply any intersection between
+the two sets — is defined normatively in §3.2.
 
-**One end-to-end worked instance.** `Stcdp_QC_5` (§7.3.1), source `mb:4,
-x:8`, destination `x:32`. Step 1: the boxes give `Ns = {mb:4, x:8}`,
-`Nd = {mb:1, x:32}` (`mb` absent from the destination table); source stride
-vector `mb:1, x:4`, base 0, destination stride vector `x:1`, base 0; every
-region single-holder, and all regions participate. Step 2:
-`#groups = gcd(4,1) · gcd(8,32) = 1 · 8 = 8`; `x` alone is
-group-determining, so `b(g) = g`. Step 3: `x_x(i) = (i floordiv 4) mod 8`.
-Step 4: `x` is the high-order digit (stride 4 spans `mb`'s full range), so
-the equality collapses to the contiguous bound
-`producer_tiles_per_group = (i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)`,
-and `|P(g)| = 4`. Step 5 on the destination (`x` stride 1, the only cut
-axis) gives the same set for `consumer_tiles_per_group`, `|C(g)| = 4`.
+**One end-to-end worked instance.** `Stcdp_QC_5` (§7.5.1), source `mb:4,
+x:8`, destination `x:32`.
+
+**Step 1.** The boxes give `Ns = {mb:4, x:8}` and `Nd = {mb:1, x:32}` (`mb` is
+absent from the destination table). Source numbering: digit order `mb` then
+`x`, so `w_mb = 1` and `w_x = Ns(mb) = 4`, with `σ = 1` and `base = 0` —
+i.e. `core = x_mb + 4·x_x`. Destination numbering: `x` alone, `w_x = 1`,
+`σ = 1`, `base = 0`. Every region is single-holder and all regions
+participate, so the guard does not fire.
+
+**Step 2.** `G_mb = gcd(4,1) = 1` and `G_x = gcd(8,32) = 8`, so
+`#groups = 8`. `x` is the group-determining axis; `mb` is free, with
+`k_mb = 4/1 = 4` and `k_x = 8/8 = 1`.
+
+**Step 3.** `σ = 1`, so the membership conjunct is vacuous and `t = i`. The
+decode gives `x_mb = i mod 4` and `x_x = (i floordiv 4) mod 8`.
+
+**Step 4.** Only `x` is constrained. It is the slowest digit, so
+`i floordiv 4` already lies in `[0,8)`, its `mod 8` is redundant, and
+`x_x = g` becomes the contiguous bound
+`producer_tiles_per_group = (i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)`.
+The free axis `mb` contributes no constraint but sets the width:
+`|P(g)| = k_mb · k_x = 4`.
+
+**Step 5.** On the destination `x` is the only cut axis with `w_x = 1`, giving
+the same set for `consumer_tiles_per_group` and `|C(g)| = 4`.
 Step 6: the group graph is `K(4,4)`, complete, so `D` is absent. Step 7:
 `mb` (`4 → 1`) is `Coarse`, `x` (`1 → 4`) is `Refine`, both nonempty, and
 the destination is cut 32 ways across 32 cores, so row 3 fires:
 `inter_tile_all_to_all`, `split_dimensions = [x]`,
 `concat_dimensions = [mb]`, 8 groups, 4 producers and 4 consumers each.
 
-### 7.3 All-to-all  →  `inter_tile_produce` + `inter_tile_all_to_all`
+#### 7.2.1 A delivery over part of a tensor — `Stcdp_QC_38`
+
+**Measured evidence: 1 of the 51.** It is the only entry that writes less
+than the whole tensor, so it is where Step 1's delivered region does visible
+work. It is an ordinary `scatter`; nothing about it needs a special case.
+
+The tensor is `mb:512 × out:4096 (× y:1)`, `out` sticked at 64. The source
+divides it 8 ways on `mb` and 4 ways on `out`. The destination keeps **one**
+`mb` index — the last, `mb[511]` — and spreads that single row over all 32
+cores, one 128-element run of `out` each.
+
+| | slice counts over the tensor | core 0 | core 28 | per-core box |
+|---|---|---|---|---|
+| src | `{mb:8, out:4}` | `mb[0:64] × out[0:1024]` | `mb[256:320] × out[3072:4096]` | `64 × 1024` |
+| dst | `{mb:1, out:32}` | `mb[511:512] × out[0:128]` | `mb[511:512] × out[3584:3712]` | `1 × 128` |
+
+**Step 1.** The delivered region is the destination's bounding box,
+`mb[511:512] × out[0:4096]` — `4096` elements against the tensor's
+`2097152`. Restricted to it, seven of the eight source `mb` slices drop out
+and the counts become `Ns = {out:4}` against `Nd = {out:32}`; `mb` carries
+one slice on both sides and so contributes nothing.
+
+**Steps 2–7.** `G_out = gcd(4,32) = 4`, so **4 groups**, with
+`|P(g)| = 4/4 = 1` and `|C(g)| = 32/4 = 8`. Those are the measured
+components exactly: four independent `K(1,8)`, one source region feeding
+eight destination regions. `D` is absent, the graph being complete. `Coarse`
+is empty and `Refine = {out}`, so Step 7's row 2 fires:
+**`inter_tile_scatter`, `scatter_dimensions = [out]`**, which is what the
+movement is — the selected row's four holders, cores `{7, 15, 23, 31}`, each
+splitting its run eight ways across a contiguous group.
+
+**Counted, not divided.** `Nd(mb) = 1` because every destination box names
+`mb[511:512]`; the one distinct slice the table contains. Divide the extent
+`512` by the slice extent `1` instead and `mb` would read as 512-way
+refined, on the strength of 511 boxes the table never mentions. Only the
+counted reading is a fact about the tables (Step 1).
+
+**What the start coordinate does and does not do.** It fixes the domain the
+counts are taken over, and nothing else: no delivery op carries an offset,
+and the coordinate lives in the access tile the partial is loaded through
+(§3.8). So a movement over part of a tensor is not a different kind of
+thing — it is a delivery whose region is smaller, classified by the same
+seven steps. Read the older framing of this entry as a "selection, not a
+delivery" and the natural next step is to special-case it; read it as a
+scatter over a bounded region and there is nothing to special-case.
+
+#### 7.2.2 The shared listing skeleton
+
+Every IR listing in §7.3–§7.7 shares one frame, so each pattern gives only
+its **delta** from it — the delivery op, its attributes, and the shapes.
+
+The frame is: the affine sets for the memory views and the access tiles; a
+`module` and a `func.func`; **two** `ktdp.construct_memory_view` ops in
+`#ktdp.memory_space<ct_local>` — one at the element offset the previous step
+wrote, sized to this tile's own input piece, one at the offset the next step
+reads, sized to its own result (§3.8); a `ktdp.construct_access_tile` /
+`ktdp.load` pair on the input view; the `ktdp.inter_tile_produce` op and its
+region; the delivery op; and a `ktdp.construct_access_tile` / `ktdp.store`
+pair on the output view. Every listing uses 32 tiles in 8 groups of 4, except
+§7.6.1's, which is a single group of 4.
+
+**The frame carries no ownership arithmetic**, because the views are
+core-local and ownership is the SPMD execution (§3.8): there is no `g = t / 4`
+to compute for an anchor, and the access tiles are anchored at the origin of
+their own buffer. §2.2 is the one place a listing computes an index at all,
+and it does so to select a bounded slab out of a buffer bigger than the
+contribution. Shapes throughout are the tile's **local** shape, so no listing
+carries a group axis: a tile belongs to one group (R1), and its local buffer
+holds that group's data only.
+
+§7.5.3 prints that frame in full, at the shapes of the all-to-all pattern;
+§7.3.1, §7.4.1, §7.7.1 and §7.7.2 give only their deltas against it. The
+pointer is here rather than at any one pattern so that it does not move when
+§7's ordering does.
+
+**What parses today, and what does not.** Five of the six delivery ops are
+unbuilt (§8, Appendix A), so every listing below that names
+`inter_tile_consume`, `inter_tile_gather`, `inter_tile_scatter`,
+`inter_tile_all_to_all` or `inter_tile_reduce_scatter` is
+**specification-only**: it shows the intended surface syntax and does not
+round-trip in the tree. Each such listing says so. The rest of every listing —
+the views, the access tiles, `ktdp.load`, `ktdp.store`,
+`ktdp.inter_tile_produce` with its region, and `ktdp.inter_tile_reduce` with
+its combiner — is shipped syntax.
+
+### 7.3 Gather  →  `inter_tile_produce` + `inter_tile_gather`
+
+**Measured evidence: 28 of the 51 relayouts** — the largest group, and the
+one with the widest attribute arity. Three of them bracket the range, with
+§7.2 applied to each.
+
+| file | `Ns` | `Nd` | `#groups` (Step 2) | `\|P\|` | `\|C\|` (Step 4) | `P(g)` / `C(g)` (Step 3–5) | `D`? (Step 6) | `gather_dimensions` |
+|---|---|---|---|---|---|---|---|---|
+| `BatchMatMulV2_QC_0` | `{mb:16}` | `{mb:8}` | `gcd(16,8) =` 8 | 2 | 1 share | `P = {0,2}`, `C = {0,1,2,3}` — **4 holders of the one share** | no, `K(2,1)` | `[mb]` — 1 axis |
+| `BatchMatMulV2_QC_12` | `{in:2, out:8, x:2}` | `{}` | `1·1·1 =` **1** | 32 | 1 share | `P =` all 32, `C =` all 32 holding the single share | no, `K(32,1)` | `[in, out, x]` — **3 axes** |
+| `BatchMatMulV2_QC_27` | `{in:32}` | `{}` | `gcd(32,1) =` **1** | 32 | 1 share | `P =` all 32, `C =` 28 cores; 4 idle | no, `K(32,1)` | `[in]` — 1 axis |
+
+Note Step 2 on the last two rows: with the destination uncut on every dim,
+every gcd is 1 and there is exactly **one group** — a single 32-way
+all-gather, not several small exchanges. That is the opposite extreme from
+the running example and it falls out of the same formula.
+
+Four facts to carry into an implementation.
+
+**`|C|` is a share count, not a core count, and this op is where they
+diverge.** All three rows have `|C(g)| = 1` — one destination share — while
+the *holders* of that share number 4, 32 and 28 respectively. `gather`'s
+`concat` type rule does not use `C` at all (§4), which is why the
+divergence is harmless here and would not be elsewhere.
+
+**Row 1 is `P ⊊ C`** (§3.2): half the consumers never produce, which is
+what closes R13 for this op (§5).
+
+**Row 2 is the measured three-axis concat.** Its per-axis factors are
+`(2, 8, 2)`, product `32 = P`; the tensor is `in:128 × out:512 × x:8` and
+each producer's share is `in:64 × out:64 × x:4`. This is the case that
+forces §3.3's placement to be stated as a per-axis odometer rather than an
+interval of the flattened extent, and R12's per-axis clause to be a real
+check rather than a formality. It is also the reason `gather_dimensions` is
+list-valued rather than a single `i64`.
+
+**Row 3 is the mirror relation and the one send-only case in the measured
+set.** One destination share held by 28 of 32 cores, so four cores produce
+and never consume: `C ⊊ P`. Both containments therefore occur within this
+one op.
+
+Two census facts belong here rather than as free-standing findings, both
+descriptive.
+
+**A three-axis concat exists in measurement**, so §3.3's placement rule must
+be well-defined over three axes: list-valued attributes are a requirement of
+a *named, measured* pattern, not a corner case. That is row 2 above.
+
+**Idleness is the norm, and replicated sources do not occur.** Every source
+region in all 51 files has exactly one holder — which is why §7.6.1 has no
+measured broadcast, and why the producer-election escape hatch of §9.2 is
+unforced. 16 files have fewer source regions than cores and all resolve to
+single holders plus idle cores. Replication appears only on the destination
+side, and every destination side that carries it classifies as `gather` —
+including row 3's single region held by 28 cores with 4 idle. This is the
+same 28-side set that §7.2's Step 1 identifies as the only sides where the
+core map is set-valued rather than a function.
+
+#### 7.3.1 IR delta — multi-group gather
+
+**Specification-only:** `ktdp.inter_tile_gather` does not exist in the tree
+(§8). The rest of the listing is shipped syntax and was checked.
+
+Local shapes (§7.2.2): each tile holds `tensor<128x3x64xf16>` — dim 0
+preserved, dim 1 its own 3-wide slab of a 12-wide gather axis, dim 2 the stick
+axis. One consumer per group, tile `4g`, assembles the four slabs into
+`tensor<128x12x64xf16>` in its own output slot; the other three tiles of the
+group produce and then go idle.
+
+```mlir
+// Frame as in §7.2.2, at these shapes: %lx_in is 128x3x64 at element offset
+// 0 and %lx_out is 128x12x64 at element offset 24576 (= 128*3*64, the first
+// slot's size), both #ktdp.memory_space<ct_local>. %slab is loaded from
+// %lx_in through an access tile anchored at the origin.
+#group_consumer = affine_set<(i)[g] : (i - 4*g == 0)>   // tile 4g only
+// ...
+%partial_future = ktdp.inter_tile_produce
+    producer_tiles_per_group = #group_tiles
+    -> !ktdp.tile_future<(tensor<128x3x64xf16>), groups = #all_groups>
+{
+  ^bb0(%gid: index):
+    ktdp.yield_partial %slab : tensor<128x3x64xf16>
+}
+
+// Gather dim 1: 4 producers x 3 = 12. One consumer (tile 4g) per group
+// assembles the full <128x12x64>. No combiner region, no identity.
+%assembled = ktdp.inter_tile_gather(%partial_future)
+    consumer_tiles_per_group = #group_consumer,
+    gather_dimensions        = [1]
+    : !ktdp.tile_future<(tensor<128x3x64xf16>), groups = #all_groups>
+      -> tensor<128x12x64xf16>
+// ...
+ktdp.store %assembled, %out_access
+          : tensor<128x12x64xf16>, !ktdp.access_tile<128x12x64xindex>
+```
+
+`gather_dimensions = [1]` with `P = 4` gives `tensor<128x12x64xf16>` — the
+3-wide per-tile slabs concatenated back to the full 12 (§4). The assembled
+tensor is four times the size of the contribution, which is why the output
+view is its own buffer and not the input slot rewritten (§3.8).
+
+### 7.4 Scatter  →  `inter_tile_produce` + `inter_tile_scatter`
+
+**Measured evidence: 12 of the 51 relayouts**, all the same division.
+`Mul_QC_1` is representative: tensor `mb:2 × out:64 × x:1 × y:512` (plus
+two size-1 dims), `out` sticked at 64.
+
+**§7.2 applied.**
+
+| quantity | value | how |
+|---|---|---|
+| `Ns` | `{y:16}`, all other dims 1 | Step 1 |
+| `Nd` | `{y:32}`, all other dims 1 | Step 1 |
+| `#groups` | `gcd(16, 32) =` **16** | Step 2 — `y` alone; every other dim contributes `gcd(1,1) = 1` |
+| `\|P(g)\|` | `16 / 16 =` **1** | Step 4 |
+| `\|C(g)\|` | `32 / 16 =` **2** | Step 4 |
+| `P(g)` | one core — the even cores `{0}`, `{2}`, … `{30}` | Steps 3–4 — `y` alone, `σ=2`, so `core = 2·x_y` |
+| `C(g)` | that core plus its odd neighbour: `{0,1}`, `{2,3}`, … | Step 5 — `y` alone, `σ=1` |
+| `D` | **not needed** | Step 6 — the group graph is `K(1,2)` |
+
+Three facts to carry into an implementation.
+
+**`|P(g)| == 1` falls out of Step 4**, not out of an assumption. It is R8
+in its simplest form and it is why this op takes no dependency attribute at
+all (§6.4) — with one producer, full-barrier and per-tile synchronization
+are the same thing.
+
+**Half the consumers never produce**, so `C ⊄ P`: R13 is `n` here by
+measurement as well as by argument (§5, §6.4). Note this is a genuine
+core-set fact and not a share-count artefact — every destination share in
+these 12 files has exactly one holder, so `|C(g)| = 2` shares *and* 2
+consumer tiles.
+
+**`scatter_dimensions = [y]`, one axis**: `y` goes from a 32-wide piece per
+core to a 16-wide one, `C = 2`, and `32 % 2 == 0` satisfies R9. All 12 are
+single-axis, so no measured scatter exercises §3.3's multi-axis odometer.
+
+#### 7.4.1 IR delta — multi-group scatter
+
+**Specification-only:** `ktdp.inter_tile_scatter` does not exist in the tree
+(§8). The rest of the listing is shipped syntax and was checked.
+
+Local shapes (§7.2.2): the group's single producer, tile `4g`, holds the whole
+slab `tensor<128x64xf16>` — dim 0 the 128-row scatter axis, dim 1 the stick
+axis — and each of the group's four consumers ends up with
+`tensor<32x64xf16>`. This is the one listing whose load stays **inside** the
+produce region: with `|P(g)| == 1` the other three tiles of the group hold
+nothing meaningful in that slot of their own scratch, and only the region
+confines the load to the tile that does (§2.2, R8).
+
+```mlir
+// Frame as in §7.2.2, at these shapes: %lx_in is 128x64 at element offset 0
+// and %lx_out is 32x64 at element offset 8192 (= 128*64), both
+// #ktdp.memory_space<ct_local>. Unlike the frame, the input access tile and
+// load live inside the produce region.
+#group_producer  = affine_set<(i)[g] : (i - 4*g == 0)>                    // tile 4g
+#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+// ...
+%whole_future = ktdp.inter_tile_produce
+    producer_tiles_per_group = #group_producer
+    -> !ktdp.tile_future<(tensor<128x64xf16>), groups = #all_groups>
+{
+  ^bb0(%gid: index):
+    // Memory ops only (§2.2), and they run on tile 4g alone.
+    %in_access = ktdp.construct_access_tile %lx_in[%c0, %c0] {
+        access_tile_set = #in_tile_set, access_tile_order = #identity_2d
+    } : memref<128x64xf16, #ktdp.memory_space<ct_local>>
+        -> !ktdp.access_tile<128x64xindex>
+    %whole = ktdp.load %in_access
+        : !ktdp.access_tile<128x64xindex> -> tensor<128x64xf16>
+    ktdp.yield_partial %whole : tensor<128x64xf16>
+}
+
+// Scatter dim 0: 128 / 4 = 32, one chunk per consumer in ascending consumer
+// local-index order. No dependency attribute (§6.4), no combiner, no identity.
+%chunk = ktdp.inter_tile_scatter(%whole_future)
+    consumer_tiles_per_group = #all_group_tiles,
+    scatter_dimensions       = [0]
+    : !ktdp.tile_future<(tensor<128x64xf16>), groups = #all_groups>
+      -> tensor<32x64xf16>
+// ...
+ktdp.store %chunk, %out_access
+          : tensor<32x64xf16>, !ktdp.access_tile<32x64xindex>
+```
+
+`scatter_dimensions = [0]` with `C = 4` gives `tensor<32x64xf16>` — the
+128-row producer slab divided into 4 (§4). A second role would add a second
+yielded partial, a second result and nothing else: the attributes are shared
+(§3.7).
+
+### 7.5 All-to-all  →  `inter_tile_produce` + `inter_tile_all_to_all`
 
 **Measured evidence: 10 of the 51 relayouts**, all with 8 groups. This is
-the best-evidenced pattern in the document and the one the running example
-belongs to, so it comes first.
+the pattern the running example belongs to, and — permute being split and
+concat in one step (§1.1) — it comes after the two single-role placements.
 
-#### 7.3.1 The running example — `Stcdp_QC_5`
+#### 7.5.1 The running example — `Stcdp_QC_5`
 
 One measured relayout, worked from the artifact of §7.1 to the KTIR op. The
 tensor is `mb:8 × out:128 × x:512 × y:1`, f16 — 524288 elements. `out` is
@@ -1797,8 +2210,8 @@ volume per core and changes only *which* elements.
 | `#groups` | `gcd(4,1) · gcd(8,32) · 1 · 1 =` **8** | Step 2 — `x` alone; `mb` contributes 1 |
 | `\|P(g)\|` | `32 / 8 =` **4** regions | Step 4 |
 | `\|C(g)\|` | `32 / 8 =` **4** regions | Step 4 |
-| `P(g)` | `{4g, 4g+1, 4g+2, 4g+3}` | Step 3–4 — strides `mb:1, x:4`, so `core = mb + 4x` |
-| `C(g)` | `{4g, 4g+1, 4g+2, 4g+3}` | Step 5 — stride `x:1`, 4 holders per share |
+| `P(g)` | `{4g, 4g+1, 4g+2, 4g+3}` | Steps 3–4 — digit order `mb` then `x`, so `core = x_mb + 4·x_x` |
+| `C(g)` | `{4g, 4g+1, 4g+2, 4g+3}` | Step 5 — `x` alone, 4 holders per share |
 | `D` | **not needed** | Step 6 — the group graph is `K(4,4)` |
 
 **This is the direct answer to "does `mb` conflict with `x`?" — no, and it
@@ -1816,12 +2229,13 @@ overlaps every destination box because `mb[2l:2l+2] ⊂ mb[0:8]` always.
 | … | … | … | … |
 | 7 | `x[448:512]` | `{28, 29, 30, 31}` | `{28, 29, 30, 31}` |
 
-**`P(g) == C(g)` here is a property of this file's stride vectors, not of
-all-to-all.** The source gives `mb` stride 1 inside `x` stride 4, so a
-group's producers are the contiguous run `{4g … 4g+3}`, and the destination's
-`x` stride 1 puts its four holders on the same run. `Exx2_QC_1` below has the
-same divisions and the same cardinalities with `P(g) ∩ C(g) = ∅` for most
-`g`, because its strides differ (§7.2's `P(g)`/`C(g)` independence part).
+**`P(g) == C(g)` here is a property of this file's numbering, not of
+all-to-all.** The source runs `mb` fastest inside `x`, so the group axis `x`
+is the slowest digit and a group's producers are the contiguous run
+`{4g … 4g+3}`; the destination cuts `x` alone, putting its four holders on
+the same run. `Exx2_QC_1` below has the same divisions and the same
+cardinalities with `P(g) ∩ C(g) = ∅` for most `g`, because its digit order
+puts the group axis first (§7.2's `P(g)`/`C(g)` independence part).
 
 **Which op.** Within a group, `mb` goes from 4 pieces to 1 (data must be
 **assembled** along it) while `x` goes from 1 piece to 4 (data must be
@@ -1838,17 +2252,42 @@ destination table agree element for element, and since `P == C` the element
 count is conserved (`2 × 64 = 8 × 16`). The attributes are `i64` arrays of
 axis *indices* into `T_p`, so `[x]` becomes `[3]` and `[mb]` becomes `[1]`.
 
+**Specification-only:** `ktdp.inter_tile_all_to_all` does not exist in the
+tree (§8). The rest of the listing is shipped syntax and was checked.
+
 ```mlir
 // 8 groups of 4 tiles; every tile both produces and consumes.
 #group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
 #all_groups  = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+
+// The measured *before* box, as a shape in the tile's own LX: the artifact's
+// per-core piece is exactly this tile's contribution, so the view is sized to
+// it and the access tile is anchored at the origin. The global coordinates
+// mb[2l:2l+2] and x[64g:64g+64] do not appear — they are this buffer (§3.8).
+#piece_set = affine_set<(d0, d1, d2, d3) :
+    (d0 == 0, d1 >= 0, -d1 + 1 >= 0,
+     d2 >= 0, -d2 + 127 >= 0, d3 >= 0, -d3 + 63 >= 0)>
+#identity_4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+%in_offset = arith.constant 0 : index      // elements (§2.2)
+%lx_in = ktdp.construct_memory_view %in_offset, sizes: [1, 2, 128, 64],
+    strides: [16384, 8192, 64, 1] {
+    coordinate_set = #piece_set,
+    memory_space   = #ktdp.memory_space<ct_local>
+} : memref<1x2x128x64xf16, #ktdp.memory_space<ct_local>>
+
+%access = ktdp.construct_access_tile %lx_in[%c0, %c0, %c0, %c0] {
+    access_tile_set = #piece_set, access_tile_order = #identity_4d
+} : memref<1x2x128x64xf16, #ktdp.memory_space<ct_local>>
+    -> !ktdp.access_tile<1x2x128x64xindex>
+%partial = ktdp.load %access
+    : !ktdp.access_tile<1x2x128x64xindex> -> tensor<1x2x128x64xf16>
 
 %future = ktdp.inter_tile_produce
     producer_tiles_per_group = #group_tiles
     -> !ktdp.tile_future<(tensor<1x2x128x64xf16>), groups = #all_groups>
 {
   ^bb0(%gid: index):
-    // memory ops only (§2.2); anchors depend on %gid — worked in §2.2
     ktdp.yield_partial %partial : tensor<1x2x128x64xf16>
 }
 
@@ -1860,6 +2299,9 @@ axis *indices* into `T_p`, so `[x]` becomes `[3]` and `[mb]` becomes `[1]`.
     concat_dimensions        = [1]    // mb
     : !ktdp.tile_future<(tensor<1x2x128x64xf16>), groups = #all_groups>
       -> tensor<1x8x128x16xf16>
+
+// %relaid is stored through a second ct_local view — sizes [1, 8, 128, 16],
+// at the offset the next step reads (§3.8). §7.5.3 prints that half in full.
 ```
 
 **The local index is measured, not conventional (§3.3).** Consumer `4g+l`
@@ -1867,11 +2309,11 @@ has local index `l` in ascending tile-id order and holds
 `x[64g+16l : +16]`, which is `split_dimensions` chunk `l` — so `l` selects
 the slice. Producer `4g+l_p` holds `mb[2 l_p : +2]`, and in each consumer's
 assembled `mb[0:8]` that contribution sits at offset `2 l_p`. Assembly is
-therefore in ascending *producer* local-index order, exactly as §3.3 and
-§4's "Which slice a tile gets" state — and the artifact confirms it rather
+therefore in ascending *producer* local-index order, exactly as §3.3's
+"Which slice a tile gets" states — and the artifact confirms it rather
 than merely permitting it.
 
-#### 7.3.2 The rest of the measured spread
+#### 7.5.2 The rest of the measured spread
 
 The three remaining division shapes, each with §7.2 applied.
 
@@ -1892,8 +2334,9 @@ Three things this spread settles.
 
 **`P(g)` and `C(g)` may be disjoint even on a square exchange.**
 `Exx2_QC_1` has the running example's cardinalities and disjoint sets for
-most `g`, because its source strides are `mb:1, out:8` against a destination
-stride of `mb:1` — same division, different stride vectors (§7.2's
+most `g`, because its source runs `mb` fastest with the group axis `mb`
+itself, against a destination that cuts `mb` alone — same division,
+different numbering (§7.2's
 `P(g)`/`C(g)` independence part). So §1.1's `all` cells mean matching
 cardinalities, not
 identical tile sets.
@@ -1909,654 +2352,248 @@ conserved (`131072 → 65536`), precisely because `P ≠ C` (§4).
 **No group in any of the ten needs `D`.** Every one is complete bipartite
 (Step 6).
 
-#### 7.3.3 The op on synthetic shapes
+#### 7.5.3 Full IR — sequence-parallel to head-parallel
 
-The IR below is on synthetic shapes chosen to make the sequence/head axis
-roles legible; §7.3.1 gives the same op on the measured shapes.
+**Specification-only:** `ktdp.inter_tile_all_to_all` does not exist in the
+tree (§8), so this listing does not round-trip today. Everything in it except
+the delivery op does, and was checked.
 
-```mlir
-// 4 tiles per group, 8 groups (32 tiles total).
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+This is §7.2.2's skeleton printed in full, at this pattern's shapes: module
+header, the two `ct_local` views, access tiles, and the produce region. The
+other listings in §7 give only what differs from it — the delivery op, its
+attributes, and the shapes.
 
-// Sequence-parallel production: every tile owns a 128-row shard of all 4 heads.
-%partial_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #all_group_tiles
-    -> !ktdp.tile_future<(tensor<128x1x4x64xf16>), groups = #all_groups>
-{
-  ^bb0(%gid: index):
-    ktdp.yield_partial %partial_4d : tensor<128x1x4x64xf16>
-}
+**Layout and partitioning.** Shapes are what one tile holds in its own LX,
+so there is no group axis (§7.2.2). Three axes, with distinct roles:
 
-// Head-parallel consumption: split dim 2 (heads) across the 4 consumers,
-// regather dim 0 (sequence) from the 4 producers.
-// split_dimensions = [2] → 4 / 4 = 1;  concat_dimensions = [0] → 128 * 4 = 512.
-%relaid = ktdp.inter_tile_all_to_all(%partial_future)
-    consumer_tiles_per_group = #all_group_tiles,
-    split_dimensions                = [2],
-    concat_dimensions               = [0]
-    : !ktdp.tile_future<(tensor<128x1x4x64xf16>), groups = #all_groups> -> tensor<512x1x1x64xf16>
-// Every tile is both producer and consumer; P == C == 4, so the element count
-// is conserved (128*4 = 512*1) even though the type changes.
-```
+- Dim 0: the **concat axis** — sequence. `128` rows before the op (this
+  tile's shard of a 512-row sequence), the whole `512` after it.
+- Dim 1: the **split axis** — heads. All `4` before the op, this tile's `1`
+  after it.
+- Dim 2 (size 64): vector / stick axis, preserved.
 
-#### 7.3.4 Full IR — sequence-parallel to head-parallel (512×8×4×64)
-
-**Layout and partitioning.** `A`, `B`, and `E` are `tensor<512x8x4x64xf16>`
-in global memory. The four axes have distinct roles:
-
-- Dim 0 (size 512): the **gather axis** — sequence. Sharded 4 ways before
-  the op, whole after it.
-- Dim 1 (size 8): the **group axis** — 8 groups.
-- Dim 2 (size 4): the **scatter axis** — heads. Whole before the op,
-  sharded 4 ways after it.
-- Dim 3 (size 64): vector / stick axis, preserved.
-
-32 tiles, 8 groups of 4. `g = t / 4`, `l = t % 4`. Before the op, tile
-`(g, l)` owns sequence shard `l`: it reads `[l*128 : l*128+128, g, *, *]`,
-shape `<128x1x4x64>`, and its partial is `A + B` over those rows. After the
-op, tile `(g, l)` owns head `l` for the whole sequence, shape
-`<512x1x1x64>`, and writes it back to `E[*, g, l, *]`.
+32 tiles, 8 groups of 4. Before the op, tile `(g, l)` holds sequence shard
+`l` of its group's sequence, `tensor<128x4x64xf16>`. After it, that tile
+holds head `l` for the whole sequence, `tensor<512x1x64xf16>` — the unit head
+axis is what "no rank reduction" (§4) means concretely.
 
 This is the pattern a sequence-parallel prefill hands to a head-parallel
-attention: the ownership axis moves from dim 0 to dim 2 in one collective,
+attention: the ownership axis moves from dim 0 to dim 1 in one collective,
 with no tile ever holding more than its `1/4` share.
 
+The two offsets are the second thing to read off this listing. The input view
+sits where the previous step left this tile's sequence shard and the output
+view where the next step expects its head, so the collective moves data
+between tiles *and* between two slots of each tile's own scratch (§3.8).
+
 ```mlir
-#A_view_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 511 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 3   >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
+// The tile's own input buffer: its sequence shard, all 4 heads.
+#in_tile_set  = affine_set<(d0, d1, d2) :
+    (d0 >= 0, -d0 + 127 >= 0, d1 >= 0, -d1 + 3 >= 0, d2 >= 0, -d2 + 63 >= 0)>
+// The tile's own output buffer: the whole sequence, one head.
+#out_tile_set = affine_set<(d0, d1, d2) :
+    (d0 >= 0, -d0 + 511 >= 0, d1 == 0, d2 >= 0, -d2 + 63 >= 0)>
+#identity_3d  = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 
-// A/B access tile for the producer: 128x1x4x64 anchored at [l*128, g, 0, 0].
-#AB_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 3   >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-// E access tile for the consumer: 512x1x1x64 anchored at [0, g, l, 0].
-#E_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 511 >= 0,
-     d1 == 0,
-     d2 == 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#identity_4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-
-#group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups  = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+#group_tiles  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+#all_groups   = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
 
 module {
   func.func @inter_tile_all_to_all_relayout() {
     %c0 = arith.constant 0 : index
-    %c4 = arith.constant 4 : index
-    %row_shard = arith.constant 128 : index   // 512 / 4
 
-    %A_start = arith.constant 1024    : index
-    %B_start = arith.constant 2098176 : index
-    %E_start = arith.constant 4195328 : index
+    // Offsets are ELEMENT counts (§2.2). Both buffers hold 32768 elements, so
+    // the output slot starts where the input one ends: element 32768, which is
+    // byte 65536 at f16.
+    %in_offset  = arith.constant 0     : index
+    %out_offset = arith.constant 32768 : index
 
-    %A_view = ktdp.construct_memory_view %A_start, sizes: [512, 8, 4, 64],
-        strides: [2048, 256, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<512x8x4x64xf16>
-    %B_view = ktdp.construct_memory_view %B_start, sizes: [512, 8, 4, 64],
-        strides: [2048, 256, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<512x8x4x64xf16>
+    // Two views, one memory space, two offsets: the slot the previous step
+    // wrote and the slot the next step reads (§3.8). Neither view names the
+    // whole tensor — a tile cannot address it (§0.1).
+    %lx_in = ktdp.construct_memory_view %in_offset, sizes: [128, 4, 64],
+        strides: [256, 64, 1] {
+        coordinate_set = #in_tile_set,
+        memory_space   = #ktdp.memory_space<ct_local>
+    } : memref<128x4x64xf16, #ktdp.memory_space<ct_local>>
 
-    // Per-tile compute (function-scope SPMD).
-    %t = ktdp.get_compute_tile_id : index
-    %g = arith.divui %t, %c4 : index
-    %l = arith.remui %t, %c4 : index
-    %row_anchor = arith.muli %l, %row_shard : index
+    %lx_out = ktdp.construct_memory_view %out_offset, sizes: [512, 1, 64],
+        strides: [64, 64, 1] {
+        coordinate_set = #out_tile_set,
+        memory_space   = #ktdp.memory_space<ct_local>
+    } : memref<512x1x64xf16, #ktdp.memory_space<ct_local>>
 
-    %A_access = ktdp.construct_access_tile %A_view[%row_anchor, %g, %c0, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<512x8x4x64xf16> -> !ktdp.access_tile<128x1x4x64xindex>
-    %B_access = ktdp.construct_access_tile %B_view[%row_anchor, %g, %c0, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<512x8x4x64xf16> -> !ktdp.access_tile<128x1x4x64xindex>
-
-    %A_tile = ktdp.load %A_access
-                : !ktdp.access_tile<128x1x4x64xindex> -> tensor<128x1x4x64xf16>
-    %B_tile = ktdp.load %B_access
-                : !ktdp.access_tile<128x1x4x64xindex> -> tensor<128x1x4x64xf16>
-
-    // No reduction — the summed sequence shard is this tile's partial; the
-    // all-to-all redistributes it from sequence-sharded to head-sharded.
-    %AB_init = tensor.empty() : tensor<128x1x4x64xf16>
-    %partial_4d = linalg.add ins(%A_tile, %B_tile
-                                 : tensor<128x1x4x64xf16>, tensor<128x1x4x64xf16>)
-                             outs(%AB_init : tensor<128x1x4x64xf16>)
-                             -> tensor<128x1x4x64xf16>
+    // The whole input buffer is this tile's contribution, so the access tile is
+    // anchored at the origin and there is no ownership arithmetic (§3.8). All
+    // 32 tiles produce, so the load can sit at function scope (§2.2).
+    %in_access = ktdp.construct_access_tile %lx_in[%c0, %c0, %c0] {
+        access_tile_set = #in_tile_set, access_tile_order = #identity_3d
+    } : memref<128x4x64xf16, #ktdp.memory_space<ct_local>>
+        -> !ktdp.access_tile<128x4x64xindex>
+    %partial = ktdp.load %in_access
+        : !ktdp.access_tile<128x4x64xindex> -> tensor<128x4x64xf16>
 
     // Produce: every tile contributes its sequence shard to the future.
     %partial_future = ktdp.inter_tile_produce
         producer_tiles_per_group = #group_tiles
-        -> !ktdp.tile_future<(tensor<128x1x4x64xf16>), groups = #all_groups>
+        -> !ktdp.tile_future<(tensor<128x4x64xf16>), groups = #all_groups>
     {
       ^bb0(%gid: index):
-        ktdp.yield_partial %partial_4d : tensor<128x1x4x64xf16>
+        ktdp.yield_partial %partial : tensor<128x4x64xf16>
     }
 
-    // All-to-all: consumer l takes head slice l (split_dimensions = [2], 4 / 4 = 1)
-    // from each of the 4 producers, and concatenates them along the sequence
-    // axis (concat_dimensions = [0], 128 * 4 = 512) in ascending producer local-index
-    // order. The producer's local index picks the destination row block;
-    // the consumer's local index picks the head. No combiner, no identity.
+    // All-to-all: consumer l takes head slice l (split_dimensions = [1],
+    // 4 / 4 = 1) from each of the 4 producers and concatenates them along the
+    // sequence axis (concat_dimensions = [0], 128 * 4 = 512) in ascending
+    // producer local-index order. producer_dependency_per_consumer is absent:
+    // the group graph is K(4,4), so the default full-barrier reading of §3.4
+    // is correct. No combiner, no identity.
     %relaid = ktdp.inter_tile_all_to_all(%partial_future)
         consumer_tiles_per_group = #group_tiles,
-        split_dimensions                = [2],
-        concat_dimensions               = [0]
-        : !ktdp.tile_future<(tensor<128x1x4x64xf16>), groups = #all_groups>
-          -> tensor<512x1x1x64xf16>
+        split_dimensions         = [1],
+        concat_dimensions        = [0]
+        : !ktdp.tile_future<(tensor<128x4x64xf16>), groups = #all_groups>
+          -> tensor<512x1x64xf16>
 
-    // Post-exchange: tile (g, l) now owns head l for the whole sequence and
-    // writes it to E[*, g, l, *]. Every tile is a consumer, so unlike the
-    // gather example there is no idle tile after the collective.
-    %E_view = ktdp.construct_memory_view %E_start, sizes: [512, 8, 4, 64],
-        strides: [2048, 256, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<512x8x4x64xf16>
-
-    %E_access = ktdp.construct_access_tile %E_view[%c0, %g, %l, %c0] {
-        access_tile_set = #E_tile_set, access_tile_order = #identity_4d
-    } : memref<512x8x4x64xf16> -> !ktdp.access_tile<512x1x1x64xindex>
-
-    ktdp.store %relaid, %E_access
-              : tensor<512x1x1x64xf16>, !ktdp.access_tile<512x1x1x64xindex>
+    // The result lands in the *output* slot, not back where the input was.
+    // Every tile is a consumer, so unlike the gather listing no tile is idle
+    // after the collective.
+    %out_access = ktdp.construct_access_tile %lx_out[%c0, %c0, %c0] {
+        access_tile_set = #out_tile_set, access_tile_order = #identity_3d
+    } : memref<512x1x64xf16, #ktdp.memory_space<ct_local>>
+        -> !ktdp.access_tile<512x1x64xindex>
+    ktdp.store %relaid, %out_access
+        : tensor<512x1x64xf16>, !ktdp.access_tile<512x1x64xindex>
 
     return
   }
 }
 ```
 
-### 7.4 Gather  →  `inter_tile_produce` + `inter_tile_gather`
+### 7.6 Broadcast and routing  →  `inter_tile_produce` + `inter_tile_consume`
 
-**Measured evidence: 28 of the 51 relayouts** — the largest group, and the
-one with the widest attribute arity. Three of them bracket the range, with
-§7.2 applied to each.
+Both of `consume`'s regimes (§6.1) live here, and both are unmeasured for
+one and the same reason, so it is given once before the two constructions.
 
-| file | `Ns` | `Nd` | `#groups` (Step 2) | `\|P\|` | `\|C\|` (Step 4) | `P(g)` / `C(g)` (Step 3–5) | `D`? (Step 6) | `gather_dimensions` |
-|---|---|---|---|---|---|---|---|---|
-| `BatchMatMulV2_QC_0` | `{mb:16}` | `{mb:8}` | `gcd(16,8) =` 8 | 2 | 1 share | `P = {0,2}`, `C = {0,1,2,3}` — **4 holders of the one share** | no, `K(2,1)` | `[mb]` — 1 axis |
-| `BatchMatMulV2_QC_12` | `{in:2, out:8, x:2}` | `{}` | `1·1·1 =` **1** | 32 | 1 share | `P =` all 32, `C =` all 32 holding the single share | no, `K(32,1)` | `[in, out, x]` — **3 axes** |
-| `BatchMatMulV2_QC_27` | `{in:32}` | `{}` | `gcd(32,1) =` **1** | 32 | 1 share | `P =` all 32, `C =` 28 cores; 4 idle | no, `K(32,1)` | `[in]` — 1 axis |
+**Measured evidence: NONE of the 51 relayouts**, for either regime. Every
+listing below is a construction rather than a transcription.
 
-Note Step 2 on the last two rows: with the destination uncut on every dim,
-every gcd is 1 and there is exactly **one group** — a single 32-way
-all-gather, not several small exchanges. That is the opposite extreme from
-the running example and it falls out of the same formula.
-
-Four facts to carry into an implementation.
-
-**`|C|` is a share count, not a core count, and this op is where they
-diverge.** All three rows have `|C(g)| = 1` — one destination share — while
-the *holders* of that share number 4, 32 and 28 respectively. `gather`'s
-`concat` type rule does not use `C` at all (§4), which is why the
-divergence is harmless here and would not be elsewhere.
-
-**Row 1 is `P ⊊ C`** (§3.2): half the consumers never produce, which is
-what closes R13 for this op (§5).
-
-**Row 2 is the measured three-axis concat.** Its per-axis factors are
-`(2, 8, 2)`, product `32 = P`; the tensor is `in:128 × out:512 × x:8` and
-each producer's share is `in:64 × out:64 × x:4`. This is the case that
-forces §4's placement to be stated as a per-axis odometer rather than an
-interval of the flattened extent, and R12's per-axis clause to be a real
-check rather than a formality. It is also the reason `gather_dimensions` is
-list-valued rather than a single `i64`.
-
-**Row 3 is the mirror relation and the one send-only case in the measured
-set.** One destination share held by 28 of 32 cores, so four cores produce
-and never consume: `C ⊊ P`. Both containments therefore occur within this
-one op.
-
-Two census facts belong here rather than as free-standing findings, both
-descriptive.
-
-**A three-axis concat exists in measurement**, so §4's placement rule must
-be well-defined over three axes: list-valued attributes are a requirement of
-a *named, measured* pattern, not a corner case. That is row 2 above.
-
-**Idleness is the norm, and replicated sources do not occur.** Every source
-region in all 51 files has exactly one holder — which is why §7.6 has no
-measured broadcast, and why the producer-election escape hatch of §9.2 is
-unforced. 16 files have fewer source regions than cores and all resolve to
-single holders plus idle cores. Replication appears only on the destination
-side, and every destination side that carries it classifies as `gather` —
-including row 3's single region held by 28 cores with 4 idle. This is the
-same 28-side set that §7.2's Step 1 identifies as the only sides where the
-core map is set-valued rather than a function.
-
-```mlir
-// 4 tiles per group, 8 groups (32 tiles total).
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#group_consumer  = affine_set<(i)[g] : (i - 4*g == 0)>
-#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-
-// All tiles contribute a partial slab.
-%partial_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #all_group_tiles
-    -> !ktdp.tile_future<(tensor<128x1x3x64xf16>), groups = #all_groups>
-{
-  ^bb0(%gid: index):
-    ktdp.yield_partial %partial_4d : tensor<128x1x3x64xf16>
-}
-
-// Gather along dim 2; one consumer per group (tile 4g) assembles the four
-// 3-wide slabs. No combiner, no identity — placement is by within-group
-// local index. gather_dimensions = [2] → 3 * 4 = 12; consumer gets <128x1x12x64>.
-%assembled = ktdp.inter_tile_gather(%partial_future)
-    consumer_tiles_per_group = #group_consumer,
-    gather_dimensions               = [2]
-    : !ktdp.tile_future<(tensor<128x1x3x64xf16>), groups = #all_groups> -> tensor<128x1x12x64xf16>
-// The consumer holds the full assembled tensor — ownership via SSA result.
-```
-
-#### 7.4.1 Full IR — multi-group gather (128×8×12×64)
-
-**Layout and partitioning.** `A` and `B` are `tensor<128x8x12x64xf16>` in global
-memory. The four axes have distinct roles:
-
-- Dim 0 (size 128): preserved through this op.
-- Dim 1 (size 8): the **group axis** — 8 groups.
-- Dim 2 (size 12): the **gather axis** — within each group, 4 tiles each own
-  a 3-wide slab that gather concatenates back into the full 12.
-- Dim 3 (size 64): vector / stick axis, preserved.
-
-32 tiles, 8 groups of 4. `g = t / 4`, `l = t % 4`. Tile `(g, l)` reads
-slice `[*, g, l*3 : l*3+3, *]` — shape `<128x1x3x64>`. Each tile's partial
-is the summed slab `A + B` over its own columns (no reduction across tiles).
-Gather along dim 2 places tile `(g, l)`'s slab at columns `[l*3 : l*3+3]` of
-the assembled `<128x1x12x64>`, which one consumer per group (tile `4g`)
-writes back to `E[*, g, *, *]`.
-
-```mlir
-#A_view_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 11  >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#AB_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 2   >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-// E access tile for the consumer: 128x1x12x64 anchored at [0, g, 0, 0].
-#E_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 11  >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#identity_4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-
-#group_tiles    = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#group_consumer = affine_set<(i)[g] : (i - 4*g == 0)>
-#all_groups     = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-
-module {
-  func.func @inter_tile_gather_multi_group() {
-    %c0 = arith.constant 0 : index
-    %c4 = arith.constant 4 : index
-    %col_slab = arith.constant 3 : index   // 12 / 4
-
-    %A_start = arith.constant 1024     : index
-    %B_start = arith.constant 12583936 : index
-    %E_start = arith.constant 25166848 : index
-
-    %A_view = ktdp.construct_memory_view %A_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-    %B_view = ktdp.construct_memory_view %B_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-
-    // Per-tile compute (function-scope SPMD).
-    %t = ktdp.get_compute_tile_id : index
-    %g = arith.divui %t, %c4 : index
-    %l = arith.remui %t, %c4 : index
-    %col_anchor = arith.muli %l, %col_slab : index
-
-    %A_access = ktdp.construct_access_tile %A_view[%c0, %g, %col_anchor, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x3x64xindex>
-    %B_access = ktdp.construct_access_tile %B_view[%c0, %g, %col_anchor, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x3x64xindex>
-
-    %A_tile = ktdp.load %A_access
-                : !ktdp.access_tile<128x1x3x64xindex> -> tensor<128x1x3x64xf16>
-    %B_tile = ktdp.load %B_access
-                : !ktdp.access_tile<128x1x3x64xindex> -> tensor<128x1x3x64xf16>
-
-    // No reduction — the summed slab is this tile's partial; gather will
-    // concatenate the four slabs along dim 2.
-    %AB_init = tensor.empty() : tensor<128x1x3x64xf16>
-    %partial_4d = linalg.add ins(%A_tile, %B_tile
-                                 : tensor<128x1x3x64xf16>, tensor<128x1x3x64xf16>)
-                             outs(%AB_init : tensor<128x1x3x64xf16>)
-                             -> tensor<128x1x3x64xf16>
-
-    // Produce: every tile contributes its 3-wide slab to the future.
-    %partial_future = ktdp.inter_tile_produce
-        producer_tiles_per_group = #group_tiles
-        -> !ktdp.tile_future<(tensor<128x1x3x64xf16>), groups = #all_groups>
-    {
-      ^bb0(%gid: index):
-        ktdp.yield_partial %partial_4d : tensor<128x1x3x64xf16>
-    }
-
-    // Gather dim 2: 4 producers x 3 = 12. One consumer (tile 4g) per group
-    // assembles the full <128x1x12x64>. No combiner region, no identity.
-    %assembled = ktdp.inter_tile_gather(%partial_future)
-        consumer_tiles_per_group = #group_consumer,
-        gather_dimensions               = [2]
-        : !ktdp.tile_future<(tensor<128x1x3x64xf16>), groups = #all_groups>
-          -> tensor<128x1x12x64xf16>
-
-    // Post-gather: the consumer tile 4g writes its group's full slab to
-    // E[*, g, *, *]. Ownership is explicit via the def-use chain of %assembled.
-    %E_view = ktdp.construct_memory_view %E_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-
-    %E_access = ktdp.construct_access_tile %E_view[%c0, %g, %c0, %c0] {
-        access_tile_set = #E_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x12x64xindex>
-
-    ktdp.store %assembled, %E_access
-              : tensor<128x1x12x64xf16>, !ktdp.access_tile<128x1x12x64xindex>
-
-    return
-  }
-}
-```
-
-### 7.5 Scatter  →  `inter_tile_produce` + `inter_tile_scatter`
-
-**Measured evidence: 12 of the 51 relayouts**, all the same division.
-`Mul_QC_1` is representative: tensor `mb:2 × out:64 × x:1 × y:512` (plus
-two size-1 dims), `out` sticked at 64.
-
-**§7.2 applied.**
-
-| quantity | value | how |
-|---|---|---|
-| `Ns` | `{y:16}`, all other dims 1 | Step 1 |
-| `Nd` | `{y:32}`, all other dims 1 | Step 1 |
-| `#groups` | `gcd(16, 32) =` **16** | Step 2 — `y` alone; every other dim contributes `gcd(1,1) = 1` |
-| `\|P(g)\|` | `16 / 16 =` **1** | Step 4 |
-| `\|C(g)\|` | `32 / 16 =` **2** | Step 4 |
-| `P(g)` | one core — the even cores `{0}`, `{2}`, … `{30}` | Step 3–4 — stride `y:2`, so `core = 2y` |
-| `C(g)` | that core plus its odd neighbour: `{0,1}`, `{2,3}`, … | Step 5 — stride `y:1` |
-| `D` | **not needed** | Step 6 — the group graph is `K(1,2)` |
-
-Three facts to carry into an implementation.
-
-**`|P(g)| == 1` falls out of Step 4**, not out of an assumption. It is R8
-in its simplest form and it is why this op takes no dependency attribute at
-all (§6.6) — with one producer, full-barrier and per-tile synchronization
-are the same thing.
-
-**Half the consumers never produce**, so `C ⊄ P`: R13 is `n` here by
-measurement as well as by argument (§5, §6.6). Note this is a genuine
-core-set fact and not a share-count artefact — every destination share in
-these 12 files has exactly one holder, so `|C(g)| = 2` shares *and* 2
-consumer tiles.
-
-**`scatter_dimensions = [y]`, one axis**: `y` goes from a 32-wide piece per
-core to a 16-wide one, `C = 2`, and `32 % 2 == 0` satisfies R9. All 12 are
-single-axis, so no measured scatter exercises §4's multi-axis odometer.
-
-```mlir
-// 4 tiles per group, 8 groups (32 tiles total).
-#group_producer  = affine_set<(i)[g] : (i - 4*g == 0)>
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-
-// One producer per group (tile 4g) holds the whole 128-row tensor.
-%whole_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #group_producer
-    -> !ktdp.tile_future<(tensor<128x1x64xf16>), groups = #all_groups>
-{
-  ^bb0(%gid: index):
-    ktdp.yield_partial %whole : tensor<128x1x64xf16>
-}
-
-// Scatter along dim 0; the four tiles per group each receive one 32-row
-// chunk. No combiner, no identity — placement is by within-group local
-// index. scatter_dimensions = [0] → 128 / 4 = 32; each consumer gets <32x1x64>.
-%chunk = ktdp.inter_tile_scatter(%whole_future)
-    consumer_tiles_per_group = #all_group_tiles,
-    scatter_dimensions              = [0]
-    : !ktdp.tile_future<(tensor<128x1x64xf16>), groups = #all_groups> -> tensor<32x1x64xf16>
-// Each consumer holds its own 32-row slice — ownership via SSA result.
-```
-
-#### 7.5.1 Full IR — multi-group scatter (128×8×64)
-
-**Layout and partitioning.** `A` and `B` are `tensor<128x8x64xf16>` in global
-memory. The three axes have distinct roles:
-
-- Dim 0 (size 128): the **scatter axis** — the producer's 128 rows are
-  split into 4 chunks of 32, one per consumer tile.
-- Dim 1 (size 8): the **group axis** — 8 groups.
-- Dim 2 (size 64): vector / stick axis, preserved.
-
-32 tiles, 8 groups of 4. `g = t / 4`, `l = t % 4`. Per group, the single
-producer tile `4g` reads its group's whole slab `A[*, g, *]` and
-`B[*, g, *]` — shape `<128x1x64>` each — and produces both as `N = 2`
-roles. Scatter along dim 0 delivers chunk `[l*32 : l*32+32, *, *]` of each
-role to the consumer with within-group local index `l`, which sums its two
-chunks and writes the `<32x1x64>` result back to `E[l*32 : l*32+32, g, *]`.
-
-**Why the loads live inside the produce region.** Unlike the other full-IR
-examples, which hoist their `ktdp.load`s to function scope, this one keeps
-them inside `ktdp.inter_tile_produce`. That is deliberate, and it follows
-from single-producer cardinality (§2.2): only tile `4g` may read the
-group's whole slab, so hoisting the loads would make every tile in the
-group execute them. The other examples have every tile produce, so
-function-scope loads are correct there.
-
-**And why the sum does not.** §2.2 restricts the producer region to memory
-ops, so the `linalg.add` cannot sit inside it beside the loads. It does not
-need to: the op is variadic (§3.7), so the region yields the two slabs as
-`N = 2` roles and each consumer adds the two `<32x1x64>` chunks it
-receives. That is the general shape of the restriction — the loads stay
-scoped because only the region can scope them, and the arithmetic moves to
-where its operands are, doing `1/C` of the work per tile instead of all of
-it on the producer.
-
-```mlir
-#A_view_set = affine_set<(d0, d1, d2) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 63  >= 0)>
-
-// Producer partial: the whole 128-row slab of one group, anchored at [0, g, 0].
-#whole_tile_set = affine_set<(d0, d1, d2) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 63  >= 0)>
-
-// Consumer chunk: 32 rows, anchored at [l*32, g, 0].
-#chunk_tile_set = affine_set<(d0, d1, d2) :
-    (d0 >= 0, -d0 + 31 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 63 >= 0)>
-
-#identity_3d = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-
-#group_producer  = affine_set<(i)[g] : (i - 4*g == 0)>
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-
-module {
-  func.func @inter_tile_scatter_multi_group() {
-    %c0 = arith.constant 0 : index
-    %c4 = arith.constant 4 : index
-    %row_chunk = arith.constant 32 : index   // 128 / 4
-
-    %A_start = arith.constant 1024    : index
-    %B_start = arith.constant 1049600 : index
-    %E_start = arith.constant 2098176 : index
-
-    %A_view = ktdp.construct_memory_view %A_start, sizes: [128, 8, 64],
-        strides: [512, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x64xf16>
-    %B_view = ktdp.construct_memory_view %B_start, sizes: [128, 8, 64],
-        strides: [512, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x64xf16>
-
-    %t = ktdp.get_compute_tile_id : index
-    %g = arith.divui %t, %c4 : index
-    %l = arith.remui %t, %c4 : index
-
-    // Produce: only the group's producer tile (4g) runs this region; it
-    // reads its group's whole 128-row slab of A and of B. Memory ops only
-    // (§2.2), so the two slabs are yielded as N = 2 roles rather than summed
-    // here.
-    %whole_future = ktdp.inter_tile_produce
-        producer_tiles_per_group = #group_producer
-        -> !ktdp.tile_future<(tensor<128x1x64xf16>, tensor<128x1x64xf16>), groups = #all_groups>
-    {
-      ^bb0(%gid: index):
-        %A_access = ktdp.construct_access_tile %A_view[%c0, %gid, %c0] {
-            access_tile_set = #whole_tile_set, access_tile_order = #identity_3d
-        } : memref<128x8x64xf16> -> !ktdp.access_tile<128x1x64xindex>
-        %B_access = ktdp.construct_access_tile %B_view[%c0, %gid, %c0] {
-            access_tile_set = #whole_tile_set, access_tile_order = #identity_3d
-        } : memref<128x8x64xf16> -> !ktdp.access_tile<128x1x64xindex>
-
-        %A_tile = ktdp.load %A_access
-                    : !ktdp.access_tile<128x1x64xindex> -> tensor<128x1x64xf16>
-        %B_tile = ktdp.load %B_access
-                    : !ktdp.access_tile<128x1x64xindex> -> tensor<128x1x64xf16>
-
-        ktdp.yield_partial %A_tile, %B_tile
-                           : tensor<128x1x64xf16>, tensor<128x1x64xf16>
-    }
-
-    // Scatter dim 0: 128 / 4 = 32. Each of the four consumer tiles per group
-    // receives one 32-row chunk of each role. Both roles share the one
-    // scatter_dimensions attribute (§3.7). No combiner region, no identity.
-    %A_chunk, %B_chunk = ktdp.inter_tile_scatter(%whole_future)
-        consumer_tiles_per_group = #all_group_tiles,
-        scatter_dimensions              = [0]
-        : !ktdp.tile_future<(tensor<128x1x64xf16>, tensor<128x1x64xf16>), groups = #all_groups>
-          -> tensor<32x1x64xf16>, tensor<32x1x64xf16>
-
-    // Post-scatter: consumer (g, l) sums its two chunks and writes them to
-    // E[l*32 : l*32+32, g, *]. Ownership is explicit via the def-use chain,
-    // and the add is now 32 rows per tile rather than 128 on the producer.
-    %chunk_init = tensor.empty() : tensor<32x1x64xf16>
-    %chunk = linalg.add ins(%A_chunk, %B_chunk
-                            : tensor<32x1x64xf16>, tensor<32x1x64xf16>)
-                        outs(%chunk_init : tensor<32x1x64xf16>)
-                        -> tensor<32x1x64xf16>
-
-    %row_anchor = arith.muli %l, %row_chunk : index
-
-    %E_view = ktdp.construct_memory_view %E_start, sizes: [128, 8, 64],
-        strides: [512, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x64xf16>
-
-    %E_access = ktdp.construct_access_tile %E_view[%row_anchor, %g, %c0] {
-        access_tile_set = #chunk_tile_set, access_tile_order = #identity_3d
-    } : memref<128x8x64xf16> -> !ktdp.access_tile<32x1x64xindex>
-
-    ktdp.store %chunk, %E_access
-              : tensor<32x1x64xf16>, !ktdp.access_tile<32x1x64xindex>
-
-    return
-  }
-}
-```
-
-### 7.6 Broadcast  →  `inter_tile_produce` + `inter_tile_consume`
-
-**Measured evidence: NONE of the 51 relayouts.** There is no measured
-example of this pattern, and the IR below is a construction rather than a
-transcription.
-
-**Why there is none, precisely.** Broadcast needs a *source* share held by
-one core and delivered to several. In the measured set **every source
+**Why there is none, precisely.** In the measured set **every source
 region has exactly one holder and every destination region that has several
 holders is the destination of a `gather`** — replication only ever appears
 on the destination side, never as a fan-out from one producer's own share
-(§7.2, Step 1). So `|P(g)| == 1` with `|C(g)| == 1` and several holders is
-never the shape a measured relayout takes.
+(§7.2, Step 1). Broadcast needs a *source* share held by one core and
+delivered to several, so `|P(g)| == 1` with `|C(g)| == 1` and several
+holders is never the shape a measured relayout takes. Routing needs a group
+with several producers whose pairing to consumers is declared, and with one
+holder per source region there is never a transmitter to choose (§9.2).
 
-**The pattern is nonetheless expressible in the artifact** — one input piece
-on one core, one output region whose `PlacementInfo.memId` lists many cores,
-which is exactly the length-4/28/32 `memId` shape the measured set does
-contain on its destination side (§7.1). And it *is* measured elsewhere: the
-broadcast row of §7's census comes from separate broadcast work (PR #4061),
-not from these 51. That row is the one row in the census that is not one of
-the 51, for exactly the reason above: **replicated sources do not occur in
-the measured set** (§7.4), so a broadcast has nothing to be read off.
+**Both patterns are nonetheless expressible in the artifact.** For a
+broadcast: one input piece on one core, one output region whose
+`PlacementInfo.memId` lists many cores, which is exactly the length-4/28/32
+`memId` shape the measured set does contain on its destination side (§7.1).
+For a whole-partial permutation: identical piece geometry on both sides
+with different `memId` (§6.1). So in both cases the gap is in the
+measurements, not in the artifact.
+
+#### 7.6.1 Broadcast
+
+Broadcast *is* measured elsewhere: the broadcast row of §7's census comes
+from separate broadcast work (PR #4061), not from these 51. That row is the
+one row in the census that is not one of the 51, for exactly the reason
+above: **replicated sources do not occur in the measured set** (§7.3), so a
+broadcast has nothing to be read off.
 
 **§7.2 applied — to the construction below, not to a measurement.** One
 group; `Ns = {}`, `Nd = {}` so Step 2 gives `#groups = 1`; `|P| = |C| = 1`
 share; `P = {0}` and `C = {0,1,2,3}` are the construction's choice, there
-being no cut axis for Step 3 to give a stride to; the group
+being no cut axis for Step 3 to decode; the group
 graph is `K(1,1)` so `D` is not needed.
 
+**Specification-only:** `ktdp.inter_tile_consume` does not exist in the tree
+(§8). The rest of the listing is shipped syntax and was checked.
+
+**What the measured pattern looks like, in this document's vocabulary.** The
+value broadcast is a per-token scalar: one number per token, held by the tiles
+that own the tokens, and needed by every tile that owns part of that token's
+hidden width. The hidden width of one token is spread over four tiles, so the
+scalar has to fan out one-to-four — `|P(g)| == 1` against four holders of the
+one destination share, the shape §7's census row records. Nothing else in the
+movement changes: the fan-out is the whole delivery.
+
+**The two offsets are the point of this listing.** Both sides are `ct_local`
+and they are *different* slots: the input is read where the step before left
+the scalar, and the result is written where the step after expects it. So the
+listing has two `ktdp.construct_memory_view` ops over one memory space at two
+element offsets, and the broadcast moves data between tiles *and* between two
+places in each tile's own scratch (§3.8).
+
 ```mlir
-// 4 tiles, 1 group: tile 0 loads W; all 4 tiles compute.
-#tile_0          = affine_set<(i)[g] : (i - 4*g == 0)>
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
+// 4 tiles, 1 group. The [g] symbol is mandatory on both tile sets even with a
+// single group — the produce verifier requires exactly one symbol on
+// producer_tiles_per_group and exactly one dimension and no symbol on groups.
+#scalar_owner    = affine_set<(i)[g] : (i - 4*g == 0)>                    // tile 0
+#width_tiles     = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
 #single_group    = affine_set<(g) : (g == 0)>
 
-%W_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #tile_0
-    -> !ktdp.tile_future<(tensor<64x128xf16>), groups = #single_group>
+#tile_set    = affine_set<(d0, d1) :
+    (d0 >= 0, -d0 + 63 >= 0, d1 >= 0, -d1 + 63 >= 0)>
+#identity_2d = affine_map<(d0, d1) -> (d0, d1)>
+
+// Element offsets (§2.2): the input slot at 0, the output slot at 4096
+// (= 64*64, so byte 8192 at f16).
+%in_offset  = arith.constant 0    : index
+%out_offset = arith.constant 4096 : index
+
+%lx_in = ktdp.construct_memory_view %in_offset, sizes: [64, 64],
+    strides: [64, 1] {
+    coordinate_set = #tile_set,
+    memory_space   = #ktdp.memory_space<ct_local>
+} : memref<64x64xf16, #ktdp.memory_space<ct_local>>
+
+%lx_out = ktdp.construct_memory_view %out_offset, sizes: [64, 64],
+    strides: [64, 1] {
+    coordinate_set = #tile_set,
+    memory_space   = #ktdp.memory_space<ct_local>
+} : memref<64x64xf16, #ktdp.memory_space<ct_local>>
+
+// The load is inside the region because only tile 0 has anything at the input
+// offset (§2.2): at function scope all four tiles would read their own slot 0
+// and three of them would get nothing meaningful.
+%scalar_future = ktdp.inter_tile_produce
+    producer_tiles_per_group = #scalar_owner
+    -> !ktdp.tile_future<(tensor<64x64xf16>), groups = #single_group>
 {
   ^bb0(%gid: index):
-    %W = ktdp.load ...
-    ktdp.yield_partial %W : tensor<64x128xf16>
+    %in_access = ktdp.construct_access_tile %lx_in[%c0, %c0] {
+        access_tile_set = #tile_set, access_tile_order = #identity_2d
+    } : memref<64x64xf16, #ktdp.memory_space<ct_local>>
+        -> !ktdp.access_tile<64x64xindex>
+    %scalar = ktdp.load %in_access
+        : !ktdp.access_tile<64x64xindex> -> tensor<64x64xf16>
+    ktdp.yield_partial %scalar : tensor<64x64xf16>
 }
 
-// Every consumer tile extracts its copy; no combiner → value passes through.
-// Groups are inferred from the future's #single_group parameter.
-%W_tile = ktdp.inter_tile_consume(%W_future)
-    consumer_tiles_per_group = #all_group_tiles
-    : !ktdp.tile_future<(tensor<64x128xf16>), groups = #single_group> -> tensor<64x128xf16>
+// Every consumer tile receives the one producer's value unchanged; no
+// combiner, so the value passes through. The groups come from the future's
+// #single_group parameter (§1.3).
+%my_scalar = ktdp.inter_tile_consume(%scalar_future)
+    consumer_tiles_per_group = #width_tiles
+    : !ktdp.tile_future<(tensor<64x64xf16>), groups = #single_group>
+      -> tensor<64x64xf16>
 
-// Post-delivery SPMD compute — owned by consumer_tiles_per_group.
-// Ownership verified by traversing the def-use chain from %W_tile.
-%A = ktdp.load ...
-%C = linalg.matmul ins(%A, %W_tile ...) ...
-ktdp.store %C, ...
+// Every consumer writes to the *output* slot of its own scratch, where the
+// next step reads. Note this is %lx_out: the broadcast's result lands at a
+// different offset from its input.
+%out_access = ktdp.construct_access_tile %lx_out[%c0, %c0] {
+    access_tile_set = #tile_set, access_tile_order = #identity_2d
+} : memref<64x64xf16, #ktdp.memory_space<ct_local>>
+    -> !ktdp.access_tile<64x64xindex>
+ktdp.store %my_scalar, %out_access
+    : tensor<64x64xf16>, !ktdp.access_tile<64x64xindex>
 ```
 
-### 7.7 Per-tile synchronization  →  `inter_tile_consume` with `producer_dependency_per_consumer`
-
-**Measured evidence: NONE of the 51 relayouts.** Both examples below are
-constructions — the dedicated-pair of §7.7.1 and the butterfly of §7.7.2 —
-not transcriptions.
+#### 7.6.2 Routing and permutation
 
 **These are the only patterns that need `D` at all.** §7.2's Step 6 gives
 the reason: `producer_dependency_per_consumer` is required exactly when the
@@ -2567,84 +2604,30 @@ stating plainly rather than burying: `D` is not on the critical path for any
 measured work, and an implementation may defer it without blocking any
 measured pattern.
 
-Two further facts about why no measurement reaches here. Routing needs a
-group with several producers whose pairing to consumers is declared, and
-every source region in the measured set has a single holder, so there is
-never a transmitter to choose (§9.2). And the *mechanism* for whole-partial
-permutation is expressible in the artifact — identical piece geometry on
-both sides with different `memId` (§6.1) — so the gap is in the measurements,
-not in the artifact.
+**The simpler, one-symbol case.** A fixed per-tile pairing that does not
+depend on the group index — e.g. dedicated producers `4g`, `4g+1` feeding
+dedicated consumers `4g+2`, `4g+3` via `p = c - 2` — needs only the
+group-independent spelling `(p)[c]` (§3.4). That spelling is accepted by
+the verifier (§8) but is not measured; the exchange below is the case that
+needs both symbols and is kept because it is `CollectivePermute`'s
+illustration.
 
-#### 7.7.1 Per-tile pairing within a single group
+**Mirror exchange across multiple groups — `CollectivePermute`.**
 
-Four tiles per group: tiles `4g` and `4g+1` are producers, tiles `4g+2`
-and `4g+3` are consumers. Each consumer depends on its dedicated producer
-(`4g+2` ← `4g`, `4g+3` ← `4g+1`), so the pairing is `p = c - 2` — a
-constant relative offset that does not depend on the group index `g`.
+Eight groups of 4 tiles; all 4 tiles in each group both produce and consume.
+Tile `c = 4g + l` waits only for its mirror partner `p = 4g + (3 - l)`,
+equivalently `p + c = 8g + 3`, which is
+`(p)[c, g] : (p + c - 8*g - 3 == 0)`. Both symbols are load-bearing: `c`
+says which consumer is asking, since consumers within a group have different
+mirrors, and `g` anchors the equation to the group, the target sum being `3`,
+`11`, `19`, … for groups `0`, `1`, `2`, …. That set is shipped syntax rather
+than an invention here — it is a committed round-trip case, as
+`affine_set<(d0)[s0, s1] : (d0 + s0 - s1 * 8 - 3 == 0)>` on the
+`reduce_argmax` function in
+`test/Dialect/KTDP/inter-tile-reduce-roundtrip.mlir`.
 
-**Dependency table** for group 0:
-
-| group | producer | consumer |
-|-------|----------|----------|
-| 0     | 0        | 2        |
-| 0     | 1        | 3        |
-
-```mlir
-// Producers: tiles 4g, 4g+1.  Consumers: tiles 4g+2, 4g+3.
-#producer_tiles  = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 1 >= 0)>
-#consumer_tiles  = affine_set<(i)[g] : (i - 4*g - 2 >= 0, -i + 4*g + 3 >= 0)>
-#single_group    = affine_set<(g) : (g == 0)>
-
-// The pairing p = c - 2 is group-independent, so g is not needed as a symbol.
-#dep_per_consumer = affine_set<(p)[c] : (p - c + 2 == 0)>
-
-%data_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #producer_tiles
-    -> !ktdp.tile_future<(tensor<64xf16>), groups = #single_group>
-{
-  ^bb0(%gid: index):
-    %data = ktdp.load ...
-    ktdp.yield_partial %data : tensor<64xf16>
-}
-
-// Each consumer unblocks independently as its assigned producer finishes.
-%my_data = ktdp.inter_tile_consume(%data_future)
-    consumer_tiles_per_group         = #consumer_tiles,
-    producer_dependency_per_consumer = #dep_per_consumer
-    : !ktdp.tile_future<(tensor<64xf16>), groups = #single_group> -> tensor<64xf16>
-```
-
-Without `producer_dependency_per_consumer`, both consumers stall until
-both producers finish. With it, each consumer stalls only for its own
-producer, halving the worst-case wait when the two producers finish at
-different times.
-
-#### 7.7.2 Butterfly mirror exchange across multiple groups — `CollectivePermute`
-
-Eight groups of 4 tiles; all 4 tiles in each group both produce and
-consume. Tile `c = 4g + l` waits only for its mirror partner
-`p = 4g + (3 - l)`, equivalent to `p + c = 8g + 3`. This models a
-butterfly-style partner exchange.
-
-Both `c` and `g` are required: `c` identifies which specific consumer is
-asking (different consumers within the group have different mirrors), and
-`g` anchors the equation to the group (the target sum `8g + 3` is `3`,
-`11`, `19`, ... for groups `0`, `1`, `2`, ..., so `g` cannot be
-eliminated).
-
-**Dependency table**, first two groups:
-
-| group | producer | consumer |
-|-------|----------|----------|
-| 0     | 0        | 3        |
-| 0     | 1        | 2        |
-| 0     | 2        | 1        |
-| 0     | 3        | 0        |
-| 1     | 4        | 7        |
-| 1     | 5        | 6        |
-| 1     | 6        | 5        |
-| 1     | 7        | 4        |
-| …     | …        | …        |
+**Specification-only:** `ktdp.inter_tile_consume` does not exist in the tree
+(§8). The rest of the listing is shipped syntax and was checked.
 
 ```mlir
 // 8 groups of 4 tiles; every tile is both producer and consumer.
@@ -2656,12 +2639,33 @@ eliminated).
 // g is needed: the sum p + c = 8g + 3 is a different value for each group.
 #dep_per_consumer = affine_set<(p)[c, g] : (p + c - 8*g - 3 == 0)>
 
+// One vector per tile, in that tile's own LX. Element offsets (§2.2): the
+// tile's own vector at 0, the partner's at 64 — a whole-partial exchange still
+// writes a different slot from the one it reads (§3.8).
+#vec_set     = affine_set<(d0) : (d0 >= 0, -d0 + 63 >= 0)>
+#identity_1d = affine_map<(d0) -> (d0)>
+
+%in_offset  = arith.constant 0  : index
+%out_offset = arith.constant 64 : index
+
+%lx_in = ktdp.construct_memory_view %in_offset, sizes: [64], strides: [1] {
+    coordinate_set = #vec_set, memory_space = #ktdp.memory_space<ct_local>
+} : memref<64xf16, #ktdp.memory_space<ct_local>>
+%lx_out = ktdp.construct_memory_view %out_offset, sizes: [64], strides: [1] {
+    coordinate_set = #vec_set, memory_space = #ktdp.memory_space<ct_local>
+} : memref<64xf16, #ktdp.memory_space<ct_local>>
+
+// Every tile produces, so the load sits at function scope (§2.2).
+%in_access = ktdp.construct_access_tile %lx_in[%c0] {
+    access_tile_set = #vec_set, access_tile_order = #identity_1d
+} : memref<64xf16, #ktdp.memory_space<ct_local>> -> !ktdp.access_tile<64xindex>
+%data = ktdp.load %in_access : !ktdp.access_tile<64xindex> -> tensor<64xf16>
+
 %data_future = ktdp.inter_tile_produce
     producer_tiles_per_group = #all_group_tiles
     -> !ktdp.tile_future<(tensor<64xf16>), groups = #all_groups>
 {
   ^bb0(%gid: index):
-    %data = ktdp.load ...
     ktdp.yield_partial %data : tensor<64xf16>
 }
 
@@ -2671,13 +2675,21 @@ eliminated).
     consumer_tiles_per_group         = #all_group_tiles,
     producer_dependency_per_consumer = #dep_per_consumer
     : !ktdp.tile_future<(tensor<64xf16>), groups = #all_groups> -> tensor<64xf16>
+
+%out_access = ktdp.construct_access_tile %lx_out[%c0] {
+    access_tile_set = #vec_set, access_tile_order = #identity_1d
+} : memref<64xf16, #ktdp.memory_space<ct_local>> -> !ktdp.access_tile<64xindex>
+ktdp.store %partner_data, %out_access
+    : tensor<64xf16>, !ktdp.access_tile<64xindex>
 ```
 
-### 7.8 Reduce  →  `inter_tile_produce` + `inter_tile_reduce`
+### 7.7 Reduce and reduce-scatter  →  `inter_tile_produce` + the two `fold` ops
 
-**Measured evidence: NONE of the 51 relayouts.** There is no measured
-example of this pattern, and the IR below is a construction rather than a
-transcription.
+Both `fold` ops (§6.2, §6.5) are unmeasured for one and the same structural
+reason, so it is given once before the two constructions.
+
+**Measured evidence: NONE of the 51 relayouts**, for either op, and the IR
+in both subsections below is a construction rather than a transcription.
 
 **Why there is none, precisely.** A relayout moves ownership of bytes and
 does nothing to them: the artifact of §7.1 names no operation to apply and
@@ -2685,12 +2697,14 @@ carries no combiner field of any kind, and no output byte in the measured
 set has more than one producer (§7's preamble). A `fold` therefore has
 nothing to become on this surface, and the absence is structural rather
 than a gap in the sample — §7.2's Rules 1–5 classify a pair of ownership
-tables, and `reduce` is not a statement about ownership.
+tables, and neither `fold` op is a statement about ownership.
 
 The consequence is about evidence, not expressiveness. Everything §6.2 and
 §5 say about `reduce` — R11's identity typing, R13's `C ⊆ P`, R14's mode
 gate — rests on argument and on what the verifier implements today (§8),
 not on a measurement.
+
+#### 7.7.1 Reduce
 
 **§7.2 applied — to the construction below, not to a measurement.** Eight
 groups of four tiles; `producer_tiles_per_group` is §2.1's worked example at
@@ -2698,629 +2712,108 @@ group size 4, the group graph is complete bipartite so `D` is not needed
 (Step 6), and the group is confined in §3.2's sense — only the four tiles of
 a group exchange partials.
 
-```mlir
-// 4 tiles per group, 8 groups (32 tiles total).
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+**IR delta — multi-group reduce.**
 
-// All tiles contribute a partial; future carries all partials.
+`ktdp.inter_tile_reduce` is the one delivery op that ships, so this listing
+round-trips as written. Local shapes (§7.2.2): each tile has already reduced
+its own rows at function scope, so its partial is `tensor<128x64xf16>` — dim 0
+preserved, dim 1 the stick axis. The reduced result keeps that shape, so all 4
+tiles in a group end up holding identical values.
+
+```mlir
+// Frame as in §7.2.2, at these shapes: %lx_in and %lx_out are both 128x64 in
+// #ktdp.memory_space<ct_local>, at element offsets 0 and 8192 (= 128*64), and
+// %partial is loaded from %lx_in through an access tile anchored at the origin.
+%add_id = arith.constant dense<0.000000e+00> : tensor<128x64xf16>
+// ...
 %partial_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #all_group_tiles
-    -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #all_groups>
+    producer_tiles_per_group = #group_tiles
+    -> !ktdp.tile_future<(tensor<128x64xf16>), groups = #all_groups>
 {
   ^bb0(%gid: index):
-    ktdp.yield_partial %partial_2d : tensor<1x64xf16>
+    ktdp.yield_partial %partial : tensor<128x64xf16>
 }
 
-// Reduce all partials; every consumer tile receives the same reduced value.
-%reduced = ktdp.inter_tile_reduce(%partial_future)
-    consumer_tiles_per_group = #all_group_tiles,
-    identity(%add_id : tensor<1x64xf16>)
-    : !ktdp.tile_future<(tensor<1x64xf16>), groups = #all_groups> -> tensor<1x64xf16>
+// Multi-group reduce: no rank reduction, so result, partial and identity are
+// one type. Each tile gets its group's <128x64>.
+%my_group_result = ktdp.inter_tile_reduce(%partial_future)
+    consumer_tiles_per_group = #group_tiles,
+    identity(%add_id : tensor<128x64xf16>)
+    : !ktdp.tile_future<(tensor<128x64xf16>), groups = #all_groups>
+      -> tensor<128x64xf16>
 {
-  ^bb0(%lhs: tensor<1x64xf16>, %rhs: tensor<1x64xf16>):
-    %sum = linalg.add ins(%lhs, %rhs ...) ...
-    ktdp.yield_reduced %sum : tensor<1x64xf16>
+  ^bb0(%lhs: tensor<128x64xf16>, %rhs: tensor<128x64xf16>):
+    %sum = linalg.add ins(%lhs, %rhs : tensor<128x64xf16>, tensor<128x64xf16>)
+                      outs(%lhs : tensor<128x64xf16>) -> tensor<128x64xf16>
+    ktdp.yield_reduced %sum : tensor<128x64xf16>
 }
+// ...
+ktdp.store %my_group_result, %out_access
+          : tensor<128x64xf16>, !ktdp.access_tile<128x64xindex>
 ```
 
-#### 7.8.1 Full IR — single-group reduce (96×64)
+No `scatter_dimensions`, so the result keeps `T_p`'s shape
+`tensor<128x64xf16>` — every tile in a group ends up holding the same value
+(§4). The result still goes to the output slot rather than over the input: the
+reduced value is not the contribution, and a tile's contribution is still live
+until the collective completes (§3.8).
 
-**Layout and partitioning.** `A` and `B` are `tensor<96x64xf16>` in global memory.
-The kernel computes the column-wise sum of `A + B`, producing a
-`tensor<1x64xf16>` (the leading unit dim is the within-group tile axis,
-preserved by the op per §4).
+#### 7.7.2 Reduce-scatter
 
-The 32 compute tiles form a single group. Tile `t` owns rows
-`t*3 .. t*3+2` of `A` and `B` — a 3×64 slab each. The per-tile
-contribution is the row-reduced partial expanded to `tensor<1x64xf16>`,
-whose leading unit dimension is the within-group tile axis. The op preserves
-it (§4), so every tile holds the same `%reduced : tensor<1x64xf16>`
-(all-reduce case: consumer set = producer set).
-
-```mlir
-#A_view_set  = affine_set<(d0, d1) : (d0 >= 0, -d0 + 95 >= 0, d1 >= 0, -d1 + 63 >= 0)>
-#AB_tile_set = affine_set<(d0, d1) : (d0 >= 0, -d0 +  2 >= 0, d1 >= 0, -d1 + 63 >= 0)>
-#E_view_set  = affine_set<(d0, d1) : (d0 == 0, d1 >= 0, -d1 + 63 >= 0)>
-#E_tile_set  = affine_set<(d0, d1) : (d0 == 0, d1 >= 0, -d1 + 63 >= 0)>
-#identity_2d = affine_map<(d0, d1) -> (d0, d1)>
-
-// One group containing all 32 tiles.
-#group_tiles = affine_set<(i)[g] : (i - 32*g >= 0, -i + 32*(g+1) - 1 >= 0)>
-#all_groups  = affine_set<(g) : (g == 0)>
-
-module {
-  func.func @inter_tile_reduce_single_group() {
-    %c0 = arith.constant 0 : index
-    %tile_size = arith.constant 3 : index
-    %A_start = arith.constant 1024  : index
-    %B_start = arith.constant 12288 : index
-    %E_start = arith.constant 22528 : index
-
-    %A_view = ktdp.construct_memory_view %A_start, sizes: [96, 64], strides: [64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<96x64xf16>
-    %B_view = ktdp.construct_memory_view %B_start, sizes: [96, 64], strides: [64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<96x64xf16>
-
-    // Identity: tensor<1x64xf16> of zeros — matches partial type T_p.
-    %c_zero   = arith.constant 0.0 : f16
-    %add_init = tensor.empty() : tensor<1x64xf16>
-    %add_id   = linalg.fill ins(%c_zero : f16) outs(%add_init : tensor<1x64xf16>)
-                  -> tensor<1x64xf16>
-
-    // Per-tile compute (function-scope SPMD).
-    %t = ktdp.get_compute_tile_id : index
-    %start_row = arith.muli %t, %tile_size : index
-
-    %A_access = ktdp.construct_access_tile %A_view[%start_row, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_2d
-    } : memref<96x64xf16> -> !ktdp.access_tile<3x64xindex>
-    %B_access = ktdp.construct_access_tile %B_view[%start_row, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_2d
-    } : memref<96x64xf16> -> !ktdp.access_tile<3x64xindex>
-
-    %A_tile = ktdp.load %A_access : !ktdp.access_tile<3x64xindex> -> tensor<3x64xf16>
-    %B_tile = ktdp.load %B_access : !ktdp.access_tile<3x64xindex> -> tensor<3x64xf16>
-
-    %AB_init = tensor.empty() : tensor<3x64xf16>
-    %AB_sum  = linalg.add ins(%A_tile, %B_tile : tensor<3x64xf16>, tensor<3x64xf16>)
-                          outs(%AB_init : tensor<3x64xf16>) -> tensor<3x64xf16>
-
-    %red_init   = tensor.empty() : tensor<64xf16>
-    %red_filled = linalg.fill ins(%c_zero : f16) outs(%red_init : tensor<64xf16>)
-                    -> tensor<64xf16>
-    %partial_1d = linalg.reduce { arith.addf }
-                    ins(%AB_sum : tensor<3x64xf16>)
-                    outs(%red_filled : tensor<64xf16>)
-                    dimensions = [0]
-    %partial_2d = tensor.expand_shape %partial_1d [[0, 1]] output_shape [1, 64]
-                    : tensor<64xf16> into tensor<1x64xf16>
-
-    // Produce: every tile contributes its partial_2d to the future.
-    %partial_future = ktdp.inter_tile_produce
-        producer_tiles_per_group = #group_tiles
-        -> !ktdp.tile_future<(tensor<1x64xf16>), groups = #all_groups>
-    {
-      ^bb0(%gid: index):
-        ktdp.yield_partial %partial_2d : tensor<1x64xf16>
-    }
-
-    // Reduce: unit dim 0 is the within-group tile axis; the op preserves it.
-    // Every tile holds the same %reduced : tensor<1x64xf16> (all-reduce case).
-    %reduced = ktdp.inter_tile_reduce(%partial_future)
-        consumer_tiles_per_group = #group_tiles,
-        identity(%add_id : tensor<1x64xf16>)
-        : !ktdp.tile_future<(tensor<1x64xf16>), groups = #all_groups> -> tensor<1x64xf16>
-    {
-      ^bb0(%lhs: tensor<1x64xf16>, %rhs: tensor<1x64xf16>):
-        %init = tensor.empty() : tensor<1x64xf16>
-        %sum  = linalg.add ins(%lhs, %rhs : tensor<1x64xf16>, tensor<1x64xf16>)
-                           outs(%init : tensor<1x64xf16>) -> tensor<1x64xf16>
-        ktdp.yield_reduced %sum : tensor<1x64xf16>
-    }
-
-    // Post-reduction: every tile redundantly writes the same value.
-    // No expand_shape needed — the result already carries the unit dim.
-
-    %E_view = ktdp.construct_memory_view %E_start, sizes: [1, 64], strides: [64, 1] {
-        coordinate_set = #E_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<1x64xf16>
-    %E_access = ktdp.construct_access_tile %E_view[%c0, %c0] {
-        access_tile_set = #E_tile_set, access_tile_order = #identity_2d
-    } : memref<1x64xf16> -> !ktdp.access_tile<1x64xindex>
-
-    ktdp.store %reduced, %E_access
-              : tensor<1x64xf16>, !ktdp.access_tile<1x64xindex>
-
-    return
-  }
-}
-```
-
-#### 7.8.2 Full IR — multi-group reduce (128×8×12×64)
-
-**Layout and partitioning.** `A` and `B` are `tensor<128x8x12x64xf16>` in
-global memory. The four axes have distinct roles:
-
-- Dim 0 (size 128): preserved through this op.
-- Dim 1 (size 8): the **group axis** — 8 groups.
-- Dim 2 (size 12): the **reduction axis** — within each group, 4 tiles
-  cooperate over this axis.
-- Dim 3 (size 64): vector / stick axis, preserved.
-
-There are 32 compute tiles forming 8 groups of 4. For tile `t`,
-`g = t / 4` and `l = t % 4`. Tile `(g, l)` reads slice
-`[*, g, l*3 : l*3+3, *]` of `A` and `B` — shape `<128x1x3x64>` each.
-
-The partial is `<128x1x1x64>`: dim 1 is the group axis and dim 2 the
-within-group tile axis, both preserved, so the result is `<128x1x1x64>`
-too (§4). All four tiles in a group hold identical values; different groups
-hold different values.
-
-```mlir
-#A_view_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 11  >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#AB_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 2   >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#E_view_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 3   >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#E_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 == 0,
-     d3 >= 0, -d3 + 63 >= 0)>
-
-#identity_4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-
-#group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups  = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-
-module {
-  func.func @inter_tile_reduce_multi_group() {
-    %c0 = arith.constant 0 : index
-    %c4 = arith.constant 4 : index
-    %red_slab = arith.constant 3 : index   // 12 / 4
-
-    %A_start = arith.constant 1024     : index
-    %B_start = arith.constant 12583936 : index
-    %E_start = arith.constant 25166848 : index
-
-    %A_view = ktdp.construct_memory_view %A_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-    %B_view = ktdp.construct_memory_view %B_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-
-    // Identity: tensor<128x1x1x64xf16> of zeros — matches partial type T_p.
-    %c_zero  = arith.constant 0.0 : f16
-    %id_init = tensor.empty() : tensor<128x1x1x64xf16>
-    %add_id  = linalg.fill ins(%c_zero : f16) outs(%id_init : tensor<128x1x1x64xf16>)
-                 -> tensor<128x1x1x64xf16>
-
-    // Per-tile compute (function-scope SPMD).
-    %t = ktdp.get_compute_tile_id : index
-    %g = arith.divui %t, %c4 : index
-    %l = arith.remui %t, %c4 : index
-    %red_anchor = arith.muli %l, %red_slab : index
-
-    %A_access = ktdp.construct_access_tile %A_view[%c0, %g, %red_anchor, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x3x64xindex>
-    %B_access = ktdp.construct_access_tile %B_view[%c0, %g, %red_anchor, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x3x64xindex>
-
-    %A_tile = ktdp.load %A_access
-                : !ktdp.access_tile<128x1x3x64xindex> -> tensor<128x1x3x64xf16>
-    %B_tile = ktdp.load %B_access
-                : !ktdp.access_tile<128x1x3x64xindex> -> tensor<128x1x3x64xf16>
-
-    %AB_init = tensor.empty() : tensor<128x1x3x64xf16>
-    %AB_sum  = linalg.add ins(%A_tile, %B_tile
-                              : tensor<128x1x3x64xf16>, tensor<128x1x3x64xf16>)
-                          outs(%AB_init : tensor<128x1x3x64xf16>)
-                          -> tensor<128x1x3x64xf16>
-
-    %red_init   = tensor.empty() : tensor<128x1x64xf16>
-    %red_filled = linalg.fill ins(%c_zero : f16)
-                              outs(%red_init : tensor<128x1x64xf16>)
-                              -> tensor<128x1x64xf16>
-    %partial_3d = linalg.reduce { arith.addf }
-                    ins(%AB_sum : tensor<128x1x3x64xf16>)
-                    outs(%red_filled : tensor<128x1x64xf16>)
-                    dimensions = [2]
-
-    %partial_4d = tensor.expand_shape %partial_3d [[0], [1], [2, 3]]
-                    output_shape [128, 1, 1, 64]
-                    : tensor<128x1x64xf16> into tensor<128x1x1x64xf16>
-
-    // Produce: every tile contributes its partial_4d to the future.
-    %partial_future = ktdp.inter_tile_produce
-        producer_tiles_per_group = #group_tiles
-        -> !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #all_groups>
-    {
-      ^bb0(%gid: index):
-        ktdp.yield_partial %partial_4d : tensor<128x1x1x64xf16>
-    }
-
-    // Multi-group reduce: no rank reduction — dims 1 and 2 both preserved.
-    // Each tile gets its group's <128x1x1x64>.
-    %my_group_result = ktdp.inter_tile_reduce(%partial_future)
-        consumer_tiles_per_group = #group_tiles,
-        identity(%add_id : tensor<128x1x1x64xf16>)
-        : !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #all_groups>
-          -> tensor<128x1x1x64xf16>
-    {
-      ^bb0(%lhs: tensor<128x1x1x64xf16>, %rhs: tensor<128x1x1x64xf16>):
-        %init = tensor.empty() : tensor<128x1x1x64xf16>
-        %sum  = linalg.add ins(%lhs, %rhs
-                               : tensor<128x1x1x64xf16>, tensor<128x1x1x64xf16>)
-                           outs(%init : tensor<128x1x1x64xf16>)
-                           -> tensor<128x1x1x64xf16>
-        ktdp.yield_reduced %sum : tensor<128x1x1x64xf16>
-    }
-
-    // Post-reduction: each tile writes its group's result to slice [*, g, l, *].
-    // No expand_shape needed — the result already carries both unit dims.
-
-    %E_view = ktdp.construct_memory_view %E_start, sizes: [128, 8, 4, 64],
-        strides: [2048, 256, 64, 1] {
-        coordinate_set = #E_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x4x64xf16>
-
-    %E_access = ktdp.construct_access_tile %E_view[%c0, %g, %l, %c0] {
-        access_tile_set = #E_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x4x64xf16> -> !ktdp.access_tile<128x1x1x64xindex>
-
-    ktdp.store %my_group_result, %E_access
-              : tensor<128x1x1x64xf16>, !ktdp.access_tile<128x1x1x64xindex>
-
-    return
-  }
-}
-```
-
-### 7.9 Reduce-scatter  →  `inter_tile_produce` + `inter_tile_reduce_scatter`
-
-**Measured evidence: NONE. This is the one op in §6 with no measured path
-at all** — unmeasured here, and unmeasured anywhere else this document can
-appeal to. No relayout reaches it for the reason §7.8 gives: a relayout does
-not combine, and the artifact has no compute in it (§7.1, §7's preamble). So
-the IR below is a construction, and §7.2's rules have nothing to say about
-it.
+**This is the one op in §6 with no measured path at all** — unmeasured
+here, and unmeasured anywhere else this document can appeal to. No relayout
+reaches it for the reason above: a relayout does not combine, and the
+artifact has no compute in it (§7.1, §7's preamble). So the IR below is a
+construction, and §7.2's rules have nothing to say about it.
 
 Every consequence of that gap is flagged where it arises: R13's cell stays
 open (§5), §9.1 keeps the question, and R11's identity retargeting (§9.3)
 is untested. Of the five unbuilt ops, this is the only one no measurement
 argues for.
 
-```mlir
-// 4 tiles per group, 8 groups (32 tiles total).
-#all_group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups      = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
+**IR delta — multi-group reduce-scatter.**
 
-// All tiles contribute a partial.
+**Specification-only:** `ktdp.inter_tile_reduce_scatter` does not exist in the
+tree (§8). The rest of the listing is shipped syntax and was checked.
+
+The partial is §7.7.1's `tensor<128x64xf16>` and the per-tile pipeline up to it
+is identical; only the delivery op, the result shape and the size of the output
+slot differ.
+
+```mlir
+// Frame as in §7.2.2 and §7.7.1, except that %lx_out is 32x64 — a quarter of
+// the input slot, because each tile keeps one chunk of the reduced value.
+%add_id = arith.constant dense<0.000000e+00> : tensor<128x64xf16>
+// ...
 %partial_future = ktdp.inter_tile_produce
-    producer_tiles_per_group = #all_group_tiles
-    -> !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #all_groups>
+    producer_tiles_per_group = #group_tiles
+    -> !ktdp.tile_future<(tensor<128x64xf16>), groups = #all_groups>
 {
   ^bb0(%gid: index):
-    ktdp.yield_partial %partial_4d : tensor<128x1x1x64xf16>
+    ktdp.yield_partial %partial : tensor<128x64xf16>
 }
 
-// Reduce and scatter; each tile receives its own slice along dim 0.
-// scatter_dimensions = [0] → 128-row axis split across 4 tiles; each gets
-// <32x1x1x64> (rank preserved, §4).
+// Reduce across the group, then scatter dim 0 (chunk = 32). The identity
+// matches T_p, not the result: it is combined before the split (R11).
 %my_chunk = ktdp.inter_tile_reduce_scatter(%partial_future)
-    consumer_tiles_per_group = #all_group_tiles,
-    scatter_dimensions              = [0],
-    identity(%add_id : tensor<128x1x1x64xf16>)
-    : !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #all_groups>
-      -> tensor<32x1x1x64xf16>
+    consumer_tiles_per_group = #group_tiles,
+    scatter_dimensions       = [0],
+    identity(%add_id : tensor<128x64xf16>)
+    : !ktdp.tile_future<(tensor<128x64xf16>), groups = #all_groups>
+      -> tensor<32x64xf16>
 {
-  ^bb0(%lhs: tensor<128x1x1x64xf16>, %rhs: tensor<128x1x1x64xf16>):
-    %sum = linalg.add ins(%lhs, %rhs ...) ...
-    ktdp.yield_reduced %sum : tensor<128x1x1x64xf16>
+  ^bb0(%lhs: tensor<128x64xf16>, %rhs: tensor<128x64xf16>):
+    %sum = linalg.add ins(%lhs, %rhs : tensor<128x64xf16>, tensor<128x64xf16>)
+                      outs(%lhs : tensor<128x64xf16>) -> tensor<128x64xf16>
+    ktdp.yield_reduced %sum : tensor<128x64xf16>
 }
-// Each tile holds a different slice — ownership explicit via SSA result.
+// ...
+ktdp.store %my_chunk, %out_access
+          : tensor<32x64xf16>, !ktdp.access_tile<32x64xindex>
 ```
 
-#### 7.9.1 Full IR — multi-group reduce-scatter (128×8×12×64)
-
-**Layout and partitioning.** `A` and `B` are `tensor<128x8x12x64xf16>`
-in global memory. The four axes have distinct roles:
-
-- Dim 0 (size 128): the **scatter axis** — within each group, this axis
-  is split across that group's 4 tiles.
-- Dim 1 (size 8): the **group axis** — 8 groups.
-- Dim 2 (size 12): the **reduction axis** — within each group, 4 tiles
-  cooperate over this axis.
-- Dim 3 (size 64): vector / stick axis, preserved.
-
-32 tiles, 8 groups of 4. `g = t / 4`, `l = t % 4`. Tile `(g, l)` reads
-slice `[*, g, l*3 : l*3+3, *]` — shape `<128x1x3x64>`. The per-tile
-pipeline through to `%partial_4d` (shape `<128x1x1x64>`) is identical
-to §7.8.2.
-
-The op reduces across the group and scatters dim 0 (128 / 4 = 32 rows per
-tile), preserving rank (§4). Tile `(g, l)` ends up with rows
-`[l*32 : (l+1)*32]` of group `g`'s reduced `<128x1x1x64>`.
-
-```mlir
-#A_view_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 11  >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-#AB_tile_set = affine_set<(d0, d1, d2, d3) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 2   >= 0,
-     d3 >= 0, -d3 + 63  >= 0)>
-
-// E view (post-scatter output): 128x8x64.
-#E_view_set = affine_set<(d0, d1, d2) :
-    (d0 >= 0, -d0 + 127 >= 0,
-     d1 >= 0, -d1 + 7   >= 0,
-     d2 >= 0, -d2 + 63  >= 0)>
-
-// E access tile per writer: 32x1x64 in E's 3-D memref, anchored at [l*32, g, 0].
-#E_tile_set = affine_set<(d0, d1, d2) :
-    (d0 >= 0, -d0 + 31 >= 0,
-     d1 == 0,
-     d2 >= 0, -d2 + 63 >= 0)>
-
-#identity_4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#identity_3d = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-
-#group_tiles = affine_set<(i)[g] : (i - 4*g >= 0, -i + 4*g + 3 >= 0)>
-#all_groups  = affine_set<(g) : (g >= 0, -g + 7 >= 0)>
-
-module {
-  func.func @inter_tile_reduce_scatter_multi_group() {
-    %c0 = arith.constant 0 : index
-    %c4 = arith.constant 4 : index
-    %red_slab      = arith.constant 3  : index   // 12 / 4
-    %scatter_chunk = arith.constant 32 : index   // 128 / 4
-
-    %A_start = arith.constant 1024     : index
-    %B_start = arith.constant 12583936 : index
-    %E_start = arith.constant 25166848 : index
-
-    %A_view = ktdp.construct_memory_view %A_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-    %B_view = ktdp.construct_memory_view %B_start, sizes: [128, 8, 12, 64],
-        strides: [6144, 768, 64, 1] {
-        coordinate_set = #A_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x12x64xf16>
-
-    // Identity: tensor<128x1x1x64xf16> of zeros — matches partial type T_p.
-    %c_zero  = arith.constant 0.0 : f16
-    %id_init = tensor.empty() : tensor<128x1x1x64xf16>
-    %add_id  = linalg.fill ins(%c_zero : f16) outs(%id_init : tensor<128x1x1x64xf16>)
-                 -> tensor<128x1x1x64xf16>
-
-    // Per-tile compute (function-scope SPMD).
-    %t = ktdp.get_compute_tile_id : index
-    %g = arith.divui %t, %c4 : index
-    %l = arith.remui %t, %c4 : index
-    %red_anchor = arith.muli %l, %red_slab : index
-
-    %A_access = ktdp.construct_access_tile %A_view[%c0, %g, %red_anchor, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x3x64xindex>
-    %B_access = ktdp.construct_access_tile %B_view[%c0, %g, %red_anchor, %c0] {
-        access_tile_set = #AB_tile_set, access_tile_order = #identity_4d
-    } : memref<128x8x12x64xf16> -> !ktdp.access_tile<128x1x3x64xindex>
-
-    %A_tile = ktdp.load %A_access
-                : !ktdp.access_tile<128x1x3x64xindex> -> tensor<128x1x3x64xf16>
-    %B_tile = ktdp.load %B_access
-                : !ktdp.access_tile<128x1x3x64xindex> -> tensor<128x1x3x64xf16>
-
-    %AB_init = tensor.empty() : tensor<128x1x3x64xf16>
-    %AB_sum  = linalg.add ins(%A_tile, %B_tile
-                              : tensor<128x1x3x64xf16>, tensor<128x1x3x64xf16>)
-                          outs(%AB_init : tensor<128x1x3x64xf16>)
-                          -> tensor<128x1x3x64xf16>
-
-    %red_init   = tensor.empty() : tensor<128x1x64xf16>
-    %red_filled = linalg.fill ins(%c_zero : f16)
-                              outs(%red_init : tensor<128x1x64xf16>)
-                              -> tensor<128x1x64xf16>
-    %partial_3d = linalg.reduce { arith.addf }
-                    ins(%AB_sum : tensor<128x1x3x64xf16>)
-                    outs(%red_filled : tensor<128x1x64xf16>)
-                    dimensions = [2]
-
-    %partial_4d = tensor.expand_shape %partial_3d [[0], [1], [2, 3]]
-                    output_shape [128, 1, 1, 64]
-                    : tensor<128x1x64xf16> into tensor<128x1x1x64xf16>
-
-    // Produce: every tile contributes its partial_4d to the future.
-    %partial_future = ktdp.inter_tile_produce
-        producer_tiles_per_group = #group_tiles
-        -> !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #all_groups>
-    {
-      ^bb0(%gid: index):
-        ktdp.yield_partial %partial_4d : tensor<128x1x1x64xf16>
-    }
-
-    // Reduce across the group, then scatter dim 0 (chunk = 32).
-    // No rank reduction: dims 1 and 2 preserved. Each tile receives <32x1x1x64>.
-    %my_chunk = ktdp.inter_tile_reduce_scatter(%partial_future)
-        consumer_tiles_per_group = #group_tiles,
-        scatter_dimensions              = [0],
-        identity(%add_id : tensor<128x1x1x64xf16>)
-        : !ktdp.tile_future<(tensor<128x1x1x64xf16>), groups = #all_groups>
-          -> tensor<32x1x1x64xf16>
-    {
-      ^bb0(%lhs: tensor<128x1x1x64xf16>, %rhs: tensor<128x1x1x64xf16>):
-        %init = tensor.empty() : tensor<128x1x1x64xf16>
-        %sum  = linalg.add ins(%lhs, %rhs
-                               : tensor<128x1x1x64xf16>, tensor<128x1x1x64xf16>)
-                           outs(%init : tensor<128x1x1x64xf16>)
-                           -> tensor<128x1x1x64xf16>
-        ktdp.yield_reduced %sum : tensor<128x1x1x64xf16>
-    }
-
-    // Post-scatter: tile (g, l) writes rows [l*32 : l*32+32] of group g's result.
-    %my_row_anchor = arith.muli %l, %scatter_chunk : index
-
-    %E_view = ktdp.construct_memory_view %E_start, sizes: [128, 8, 64],
-        strides: [512, 64, 1] {
-        coordinate_set = #E_view_set,
-        memory_space   = #ktdp.memory_space<global>
-    } : memref<128x8x64xf16>
-
-    %E_access = ktdp.construct_access_tile %E_view[%my_row_anchor, %g, %c0] {
-        access_tile_set = #E_tile_set, access_tile_order = #identity_3d
-    } : memref<128x8x64xf16> -> !ktdp.access_tile<32x1x64xindex>
-
-    // Rank reduction now lives in ordinary code, not the op: collapse the
-    // within-group tile axis to match E's 3-D layout.
-    %my_chunk_3d = tensor.collapse_shape %my_chunk [[0], [1, 2], [3]]
-                     : tensor<32x1x1x64xf16> into tensor<32x1x64xf16>
-
-    ktdp.store %my_chunk_3d, %E_access
-              : tensor<32x1x64xf16>, !ktdp.access_tile<32x1x64xindex>
-
-    return
-  }
-}
-```
-
-### 7.10 Selection, not a delivery — `Stcdp_QC_38`
-
-**Measured evidence: 1 of the 51**, and it is the guard case rather than a
-pattern. It is worth its own subsection because it is the one file on which
-§7.2's Step 4 gives the wrong answer, and knowing *why* is what keeps an
-implementer from generalizing them past their precondition.
-
-The tensor is `mb:512 × out:4096 (× y:1)`, `out` sticked at 64. The source
-divides it 8 ways on `mb` and 4 ways on `out`. The destination keeps **one**
-`mb` index — the last, `mb[511]` — and spreads that single row over all 32
-cores, one 128-element run of `out` each.
-
-| | slice counts | core 0 | core 28 | per-core box |
-|---|---|---|---|---|
-| src | `{mb:8, out:4}` | `mb[0:64] × out[0:1024]` | `mb[256:320] × out[3072:4096]` | `64 × 1024` |
-| dst | `{mb:1, out:32}` | `mb[511:512] × out[0:128]` | `mb[511:512] × out[3584:3712]` | `1 × 128` |
-
-**Where the counts come from matters here.** Read off the destination
-table, `mb` carries one distinct slice — every core names `mb[511:512]` —
-so `Nd(mb) = 1` against `Ns(mb) = 8`, and `mb` is coarsened; `out` goes the
-other way, 4 against 32, so it is refined. Divide instead, extent 512 by
-the slice's extent 1, and `Nd(mb) = 512`: `mb` would come out *refined*, on
-the strength of 511 pieces the table never mentions. Only the first reading
-is a fact about the tables (§7.2, Step 1).
-
-**Why Step 7's guard fires.** Both of Step 7's *count* clauses pass:
-`prod(Ns) = 8 × 4 = 32` equals the source region count and
-`prod(Nd) = 1 × 32 = 32` equals the destination's. **Coverage** is what
-fails — the 32 distinct destination regions hold `32 × 128 = 4096` elements
-against the tensor's `512 × 4096 = 2097152`, a 512th of it. The coverage
-clause is the only clause of Step 7 that reads slice *sizes* and the tensor
-shape rather than slice counts, which is why the count clauses cannot
-replace it. This is the one file of the 51 that is a **selection, not a
-partition**, and it is the whole reason the validity guard exists.
-
-**And why §7.2's steps must not be run on it.** Step 2 gives
-`gcd(8,1) · gcd(4,32) = 1 · 4 = 4`, which does match the number of
-components the overlap graph actually has. Step 4 gives
-`|P(g)| = 32/4 = 8` and `|C(g)| = 32/4 = 8` — and that is **wrong**: the
-measured components are `K(1, 8)`, one source region feeding eight
-destination regions. The reason is that **28 of the 32 source regions
-participate in no overlap at all**; they are isolated in the graph, so
-`prod(Ns)` overcounts the producers by a factor of 8. Steps 2 and 4 divide
-region totals by the group count, which is only sound when every region
-participates — exactly what the guard row checks. This is the sole file in
-the measured set with isolated regions, and the sole file on which Step 4
-fails.
-
-**The guard row is a KTIR modelling choice, not a property of the
-artifact.** Nothing in the artifact of §7.1 requires either side's pieces
-to cover the tensor, and this file is the proof: it is a legal, measured
-`STCDPOpLx`. What the guard row encodes is this document's position that
-**a selection is not a delivery**. It needs a select *before* one,
-expressed as the access tile the partial is loaded through — the chain
-below. The distinction matters because a reader who takes the row for a fact
-about the artifact, then observes a selection being emitted, will "fix" the
-rule and lose the modelling.
-
-#### How a bounded extent is expressed
-
-This file's destination owns `mb[511:512]`, and **no delivery op can say
-that.** The tile sets name which *tiles* participate, the dimension
-attributes name which *axes* split or concatenate, and §4's type rules are
-extent arithmetic with no base coordinate: none of the six ops carries an
-offset.
-
-A bounded extent is therefore a property of `T_p`, and `T_p` gets it from the
-access tile the partial was loaded through. The chain is the same whatever
-the bound:
-
-```mlir
-// The extent is the access tile's shape and the offset is its anchor. Both are
-// arguments here, and neither appears again downstream.
-%access  = ktdp.construct_access_tile %view[<anchor-indices>] {
-    access_tile_set = <affine-set>, access_tile_order = <affine-map>
-} : memref<...> -> !ktdp.access_tile<...xindex>
-%partial = ktdp.load %access : !ktdp.access_tile<...xindex> -> T_p
-
-// From here the bound is invisible: the delivery op sees a T_p and an axis
-// set, never a coordinate. Selecting a different sub-tensor changes only T_p.
-%future  = ktdp.inter_tile_produce producer_tiles_per_group = <affine-set>
-    -> !ktdp.tile_future<(T_p), groups = #groups>
-{ ^bb0(%gid: index): ktdp.yield_partial %partial : T_p }
-%result  = ktdp.inter_tile_consume(%future)
-    consumer_tiles_per_group = <affine-set>
-    : !ktdp.tile_future<(T_p), groups = #groups> -> T_p
-```
-
-`ktdp.construct_access_tile` fixes the coordinates, `ktdp.load` yields the
-value, `ktdp.yield_partial` only names it, and the delivery carries whatever
-the partial turned out to be. **That is why a selection is not a delivery**,
-and why the coverage clause measures the value *delivered*: read as a
-delivery of the whole tensor the pair above covers 1/512 and trips the guard,
-while the sub-tensor it should have been is covered exactly. §2.2 works the
-same chain with group-dependent anchors.
-
-Whether a delivery is then needed at all is the ordinary classification
-question, and here it is not: each core owns a different stick-run of the
-selected row, so nothing crosses cores and Step 7's row 1 gives
-`no op needed`. Had they all needed the same run it would be a broadcast, and
-the load would move inside the producer region, since one producer per group
-(R8) means the non-producing tiles must not run it (§2.2, and §7.5.1 for the
-same reason on `scatter`).
+`scatter_dimensions = [0]` with `C = 4` gives `tensor<32x64xf16>` — the
+128-row axis divided into 4, with no rank reduction (§4).
 
 ---
 
@@ -3337,13 +2830,23 @@ The legality pass (`lib/Conversion/ConvertToKTIR/KTIRCheckLegality.cpp`,
 
 | Rule | Op | Check | Location |
 |---|---|---|---|
-| R2 | `inter_tile_produce` | `future.hasOneUse()` | `KTIRCheckLegality.cpp:80–85` |
-| R13 | `inter_tile_reduce` | `C ⊆ P` per group | `KTIRCheckLegality.cpp:107–117` |
-| R14 | `inter_tile_reduce` | `C == P` or `\|C\| == 1` | `KTIRCheckLegality.cpp:119–128` |
-| R3 | `inter_tile_reduce` | declared dep `p ∈ P(g)` | `KTIRCheckLegality.cpp:151–160` |
-| R4 | `inter_tile_reduce` | every `p` covered by some dep | `KTIRCheckLegality.cpp:163–174` |
+| R2 | `inter_tile_produce` | `future.hasOneUse()` | `KTIRCheckLegality.cpp` |
+| R13 | `inter_tile_reduce` | `C ⊆ P` per group | `KTIRCheckLegality.cpp` |
+| R14 | `inter_tile_reduce` | `C == P` or `\|C\| == 1` | `KTIRCheckLegality.cpp` |
+| R3 | `inter_tile_reduce` | declared dep `p ∈ P(g)` | `KTIRCheckLegality.cpp` |
+| R4 | `inter_tile_reduce` | every `p` covered by some dep | `KTIRCheckLegality.cpp` |
+| R11 | `inter_tile_reduce` | identity types match, by ODS trait | `KTDP.td` |
 
-**Not yet implemented:** R1, R5, R6, R7, R8, R9, R10, R11, R12, and
+R11 is enforced declaratively rather than by the legality pass:
+`RangedTypesMatchWith` and `TypesMatchWith<"identity types must match result
+types">` tie `identity` to the op's **results**. That is the divergence §5's
+R11 statement describes — R11 as specified pins `identity` to `T_p`, which
+coincides with results for `reduce` and does **not** for `reduce_scatter`, so
+a verifier generalizing the shipped trait must retarget it. The rule is
+implemented for the one op that has it, at the wrong anchor for the op that
+does not yet exist.
+
+**Not yet implemented:** R1, R5, R6, R7, R8, R9, R10, R12, and
 R3/R4/R13/R14 for every op other than `reduce`. Of the ops §7's census shows the
 measured set requires — `gather`, `all_to_all`, `scatter`, `consume` — none
 has a verifier today, and R9/R12 in particular are stated over multi-axis
@@ -3358,29 +2861,27 @@ the gap exists at both the spec and the implementation level.
 measured, while R9 and R12 — which every measured `gather`, `all_to_all`
 and `scatter` needs — block everything.
 
+**Which ops the measured set requires, and their arity.** Four of the six
+delivery ops, with these arities:
+
+| Op | measured files | arity needed |
+|---|---|---|
+| `inter_tile_consume` | broadcast work | — |
+| `inter_tile_gather` | 28 | up to **3 axes** |
+| `inter_tile_scatter` | 13 | 1 axis |
+| `inter_tile_all_to_all` | 10 | 1 axis each side, but **non-square** `M ≠ K` |
+
+Two consequences follow for implementation order. `gather` carries the most
+measured weight *and* the widest arity, so its multi-axis path cannot be
+deferred. And `all_to_all`'s non-square case is measured, not hypothetical,
+so `P == C` is not a safe simplifying assumption.
+
 **Dependency-set arity.** §3.4's one-symbol spelling `(p)[c]` is accepted as
-of `KTDPInterTileHelpers.cpp:69–100` and `KTIRCheckLegality.cpp:135–142`.
+of `KTDPInterTileHelpers.cpp` and `KTIRCheckLegality.cpp`.
 Before that, `depTilesOf` always bound two symbols and the pass rejected any
 set whose symbol count was not exactly 2, so the group-independent form this
-document documents — and uses in §7.7.1 — was unusable in practice. The symbol
+document documents — and notes in §7.6.2 — was unusable in practice. The symbol
 count now selects how many values are bound, and 3-or-more is diagnosed.
-
-**Two asymmetries the verification matrix (§5) forces into the open.**
-
-1. R8 is a verifier obligation for both `consume` and `scatter`, but it
-   bites differently: `scatter` takes no dependency attribute, so one
-   producer per group is the whole rule, whereas `consume` admits a
-   multi-producer group whenever the attribute pairs each consumer tile with
-   exactly one producer (§5). Neither is implemented yet.
-2. R13 and R14 are implemented for `reduce` only, and R13 is the
-   implementation of open question §9.1 (must a consumer also be a
-   producer?) for that one op. The rule's answers now differ by op: **yes**
-   for `reduce` (enforced today), **no** for `scatter` (§6.6), **no** for
-   `gather` and `all_to_all` (falsified by measurement, §5), and still
-   undecided for `reduce_scatter` — the single remaining `?` cell. So an
-   implementer extending the check must gate it per op rather than
-   generalizing the `reduce` path. R14's mode gate is likewise a current
-   implementation restriction, not a design conclusion.
 
 ---
 
@@ -3390,18 +2891,28 @@ count now selects how many values are bound, and 3-or-more is diagnosed.
 
 **What turns on it:** whether the verifier rejects a delivery op whose consumer
 set is not contained in its producer set. That check exists and runs today — R13
-for `reduce` (`KTIRCheckLegality.cpp:107–117`) — and the answer changes which
+for `reduce` (`KTIRCheckLegality.cpp`) — and the answer changes which
 programs are legal.
 
 **Closed for the copy-only ops, by measurement.** `gather`, `all_to_all` and
 `scatter` are resolved **no**: 16 of the 51 relayouts have receive-only
 consumers and one has send-only producers, so both `C ⊄ P` and `C ⊊ P` occur
 in shipping patterns (R13, §5; §3.2). `scatter`'s *no* was already argued
-(§6.6); the other two are now measurement rather than judgement. What remains
+(§6.4); the other two are now measurement rather than judgement. What remains
 is a `?` cell for `reduce_scatter` alone.
 
+**The answers now differ by op, so the check must be gated per op.** R13 and
+R14 are implemented for `reduce` only, and R13 is the implementation of this
+question for that one op. The rule's answers are: **yes** for `reduce`
+(enforced today), **no** for `scatter` (§6.4), **no** for `gather` and
+`all_to_all` (falsified by measurement, §5), and still undecided for
+`reduce_scatter` — the single remaining `?` cell. So an implementer extending
+the check must gate it per op rather than generalizing the `reduce` path.
+R14's mode gate is likewise a current implementation restriction, not a
+design conclusion.
+
 **Why `reduce_scatter` stays open.** It is the one op with no measured path
-at all (§7.9): relayouts do not combine (§7's preamble), so nothing in the
+at all (§7.7.2): relayouts do not combine (§7's preamble), so nothing in the
 evidence reaches either `fold` op. `reduce`'s *yes* is one op's
 implementation choice, argued from its own semantics, and whether a
 reduce-*scatter*'s consumers must also have contributed is genuinely
@@ -3409,51 +2920,78 @@ undecided. Related and equally open on the `fold` side: R14's mode gate
 (all-reduce or reduce-to-one, no strict multi-tile subset) is a present
 restriction on `reduce` awaiting the same call.
 
-### 9.2 Two things a work division cannot settle
+### 9.2 Two facts neither the artifact nor the result type records
 
-Both are escape hatches in §7.2's Step 7, and both need the per-region core
-sets rather than the division.
+Both open questions below are about a number that has to come from somewhere
+and today comes from nowhere: which of several holders *transmits*, and how
+many *shares* a group's result is cut into. Neither is a gap in the work
+division — §7.2's membership steps do read the per-region core sets (Step 1's
+core map, Steps 3–5). What the artifact does not record is transmit-versus-hold
+*intent*, and what the result type may not record is a share count. A third
+question was open here and is now closed; it is kept below with its evidence
+rather than deleted.
 
-**Producer election.** Rows 2–4 return *insufficient information* when a
-source region has several holders: R8 requires each consumer tile to have
-exactly one source, and the tables record who *holds* a region, not who
-*transmits* it. Unforced by measurement — every source region across the 51
-relayouts has exactly one holder (§7.2, Step 1) — so the choice between
-electing a canonical producer (lowest tile id), requiring the frontend to
-pick, and rejecting replicated sources can wait.
+**Producer election — open, and only in the classifier.** Rows 2–4 of §7.2's
+Step 7 return *insufficient information* when a source region has several
+holders: R8 requires each consumer tile to have exactly one source, and the
+tables record who *holds* a region, not who *transmits* it. **The KTIR surface
+has already settled its half of this.** `producer_tiles_per_group` is an
+authored attribute on `ktdp.inter_tile_produce`, not a quantity derived from
+anything, and `InterTileProduceOp::verify` enforces R1's group disjointness on
+it, so no program can name a producing tile whose group is ambiguous — the
+frontend has necessarily picked. Requiring the frontend to pick is therefore
+not one of the options; it is what the design does. The residue is a question
+about the artifact-to-KTIR classifier alone: when the *artifact* gives a source
+region several holders, should Step 7 elect a canonical transmitter — the
+lowest core id — or refuse the file? Unforced by measurement: every source
+region across the 51 relayouts has exactly one holder (§7.2, Step 1; §7.3), so
+no measured file reaches the choice.
 
-**Replication versus idleness.** Row 3's `prod(Nd(a)) == num_cores` is weaker
-than asking whether a destination region is shared, and the two part company on
-every row-4 output: a region held by several cores is either genuine
-replication or one consumer plus idle cores. Both occur in measurement — one
-region held by 28 cores with 4 idle, and the broadcast work genuinely
-replicating — so the distinction is real. What is open is whether the op
-surface should mark it, or whether `consumer_tiles_per_group` naming the actual
-holders suffices. This is why §7.2's membership steps (Steps 1, 3–5) run before the
-core-count test.
+**How does a verifier obtain `C` for a multicast share? — open.** The
+normative P/C paragraph (§4) defines `C` as the number of distinct *shares* a
+group's result is cut into rather than the number of cores holding one, and
+directs a verifier to take `C` "from the result type's share structure rather
+than from `|consumer_tiles_per_group(g)|`". No section says how, and the same
+paragraph gives a reason to doubt that it can be done: for `n > 1` "the result
+type is checked, not derived". The difficulty is circularity rather than
+arithmetic. Recovering a number is easy — the per-axis ratios
+`T_p[d_k] / T_r[d_k]` multiply to `C` (R9's per-axis clause) — but if `C` is
+*defined* as that product then R9 has nothing left to check: every divisible
+result type is self-consistent, and no independent statement of the share count
+remains to check it against. An answer must also say how §3.3's local index,
+which counts consumer *tiles*, indexes *shares* when several tiles hold one. So
+the question is whether `C` is recoverable from the result type at all under
+multicast, or whether a share count must become an attribute on the splitting
+ops. Unforced today: every measured multicast share is on a `gather` (§7.3 —
+all 28 replicated destinations classify there), and `concat` is the one
+placement whose type rule and whose rule R12 never mention `C` at all, so no
+measured file needs the recovery. It becomes live the moment a `split` or
+`permute` movement multicasts a share.
+
+**Closed — replication versus idleness, by the normative text.** Row 3's
+`prod(Nd(a)) == num_cores` is weaker than asking whether a destination region
+is shared, and the two part company on every row-4 output: a region held by
+several cores is either genuine replication or one consumer plus idle cores.
+Both occur in measurement — one region held by 28 cores with 4 idle (§7.3), and
+the broadcast work genuinely replicating (§7.6.1) — so the distinction is real.
+It needs no marking on the op surface. `consumer_tiles_per_group` naming the
+actual holders suffices: §3.2 makes the operations that use a delivery op's
+result the consumer tiles' own, and §3.7 makes results undefined for tiles not
+in that set, so a listed holder receives and an unlisted core is idle with
+nothing asserted about it either way. §6.3 already makes exactly this move for
+`gather` — all-gather is the same op with a wider consumer set, not a marked
+variant (§1.2) — and §7.3's 28-core row is written that way, one share with 28
+holders and 4 idle cores. A marker attribute would add no semantics to that.
 
 ### 9.3 Physicalization: which ops are layout-transparent
 
 Raised by Triton issue #92. **Physicalization** rewrites a tensor to a stick
 layout, splitting one axis by the stick size with the chunk count at the front
-and the within-stick extent at the back:
-
-```
-logical [16, 64], stick on the 64 axis, stick = 32
-     →  physical [64/32, 16, 32] = [2, 16, 32]
-```
-
-Rank grows by one and the logical stick axis becomes **two non-adjacent
-physical axes**. Nothing in this repository represents a stick layout today, so
-what follows is a design obligation, not current behaviour.
-
-**Why today's `reduce` is transparent.** It carries no axis-index attribute and
-pins results to partials (`KTDP.td:168-171`), so physicalizing the input carries
-the result along with no op knowledge — the "elementwise" property. Issue #92's
-failure is adjacent: the `identity` operand is tied to results
-(`KTDP.td:172-174`) but materialized at logical rank before any layout pass
-runs. That is a *propagation* bug, and since the identity is a splat,
-re-materializing it at the right type is shape-agnostic by construction.
+and the within-stick extent at the back — `logical [16, 64]` with stick 32 on
+the 64 axis becomes `physical [2, 16, 32]`. Rank grows by one and the logical
+stick axis becomes **two non-adjacent physical axes**. Nothing in this
+repository represents a stick layout today, so what follows is a design
+obligation, not current behaviour.
 
 **The split follows §1.1 exactly**, because §4 makes result type a function of
 `placement` alone and `replicate` is the only placement naming no axis set:
@@ -3462,64 +3000,69 @@ re-materializing it at the right type is shape-agnostic by construction.
 |---|---|---|---|---|
 | `consume` | replicate | — | identical | **yes** |
 | `reduce` | replicate | — | identical | **yes** |
-| `reduce_scatter` | split | `scatter_dimensions` | ÷ `C` | no — attrs, shape, identity |
 | `gather` | concat | `gather_dimensions` | × `P` | no — attrs, shape |
-| `all_to_all` | permute | `split_`/`concat_dimensions` | ÷ `C` and × `P` | no — attrs, shape |
 | `scatter` | split | `scatter_dimensions` | ÷ `C` | no — attrs, shape |
+| `reduce_scatter` | split | `scatter_dimensions` | ÷ `C` | no — attrs, shape, identity |
+| `all_to_all` | permute | `split_`/`concat_dimensions` | ÷ `C` and × `P` | no — attrs, shape |
 
-`consume` joins `reduce`. `scatter` does **not**, despite being copy-only: it
-divides an extent and names the axis it divides. No rank reduction (§4) is
-load-bearing here — a collapse is an axis-*position* operation, so a `reduce`
-that collapsed would not be transparent either.
+`consume` joins `reduce` because both carry no axis-index attribute — issue
+#92's own failure is a *propagation* bug in `reduce`'s `identity`, materialized
+at logical rank before physicalization runs, not evidence against its
+transparency (`KTDP.td`). `scatter` does **not** join them despite
+being copy-only: it divides an extent and names the axis it divides. No rank
+reduction (§4) is load-bearing here — a collapse is an axis-*position*
+operation, so a `reduce` that collapsed would not be transparent either.
 
-**What §4's rules already settle.** A dim attribute naming a sticked axis
-becomes *two* indices (`[1]` → `[0, 2]`), which only the list-valued form can
-express, and §4's slowest-to-fastest order is exactly what the stick layout
-produces — physical `(c, m, s)` holds logical `n = c*32 + s`. The floordiv rule
-fixes which axis absorbs the ×`P` or ÷`C`, and R9 on the floordiv axis is then
-precisely the stick-multiple check: `scatter` with `C = 4` on a 2-chunk axis
-fails `2 % 4`, correctly rejecting a logical result of `[16,16]` that is half a
-stick. `E(D)` itself is invariant (`2 × 32 = 64`), so R9 and R12 cannot change
-verdict on the flattened extent — provided a rewrite lists *both* halves of a
-split axis; listing one half is simply the wrong rewrite, and R9 catches it.
+**Axis indices shift, and physicalization is where that is handled.** A dim
+attribute naming a sticked axis becomes *two* indices (`[1]` → `[0, 2]`), in
+§4's slowest-to-fastest order — physical `(c, m, s)` holds logical
+`n = c*32 + s` — and the floordiv rule below fixes which of the two absorbs
+the ×`P` or ÷`C`. The
+chunk-count axis is also inserted at the *front*, so every unshifted logical
+axis moves too: logical axis 0 of `[16,64]` becomes physical axis 1.
 
-**Axis indices shift, and physicalization is where that is handled.** The
-chunk-count axis is inserted at the *front*, so logical axis 0 of `[16,64]`
-becomes physical axis 1: no dim attribute survives untouched, including one
-naming an axis physicalization never split. Left unshifted,
-`gather_dimensions = [0]` names the chunk axis instead — a valid, distinct
-index, so R9/R12 pass and the op is silently wrong.
+**Two obligations on the floordiv axis.** The two statements below are what a
+stick layout would owe §4's placement algebra. They are stated normatively
+because that is how they will have to read once such a layout exists; nothing
+in the repository is subject to them today.
 
-The remedy needs no new mechanism. Physicalization **is** the logical-to-physical
-mapping, so the pass that applies it already knows which logical axis was split,
-the stick size, and where every logical axis landed — exactly the information a
-dim attribute needs. The attributes name logical axes as authored, and the pass
-rewrites them in the same step it retypes the tensors: `[1]` → `[0, 2]` for the
-split axis, `[0]` → `[1]` for the shifted one. Nothing downstream re-derives it,
-and the ops stay layout-agnostic, which matches §7.1's framing where axes are
-artifact symbol names until lowering.
+**Split and concat apply to the floordiv axis — normative.** When a listed
+axis is a **sticked** axis — one that a stick layout has split into a
+`floordiv` (chunk-count) axis and a `mod` (within-stick) axis — the `÷ C` or
+`× P` applies to the **floordiv axis only**. The `mod` axis is invariant: its
+extent is the stick size, and changing it would redefine what a stick is.
 
-This is not the shape of issue #92. There the `identity` was missed because
-`retypeChain` walks forward along operand 0 and never reaches a sibling
-operand — an incompleteness in *which values* the pass visits. Attributes sit on
-the op the pass is already rewriting, so they are in reach by construction; what
-is required is that the mapping be applied to them, not that it be discovered
-somewhere else.
+This settles what "`E(D)` divided by `C`" alone leaves open, since a flattened
+extent does not say which listed axis absorbs the factor. For a partial
+`[2, 16, 32]` (logical `[16, 64]`, stick 32) with `gather_dimensions = [0, 2]`
+and `P = 4`, the result is `[8, 16, 32]` — the chunk count goes `2 → 8` and
+the stick axis stays `32`, which is exactly the physicalization of the logical
+result `[16, 256]`. Absorbing into the `mod` axis instead would give
+`[2, 16, 128]`: the same flattened extent, the wrong tensor.
 
-**What is still open.**
+A useful consequence: **R9 applied to the floordiv axis is the stick-multiple
+check.** `E(floordiv) % C == 0` holds exactly when the logical result extent
+is a whole multiple of the stick, so a split that would drive the result
+sub-stick fails R9 rather than needing a rule of its own. On the partial
+above, `C = 2` gives `2 % 2 == 0` and a result of `[1, 16, 32]`; `C = 4` gives
+`2 % 4 ≠ 0` and is rejected — correctly, since the logical result `[16, 16]`
+is half a stick and unrepresentable in that layout.
 
-1. **R12's per-axis clause gains teeth.** Single-axis lists make it trivial;
-   `[0,2]` makes it two checks. Stick size depends on element type (32 for f32,
-   64 for f16), so variadic roles with mixed types can have equal products and
-   unequal per-axis extents — reachable, since §3.7 requires all roles to share
-   one axis set.
-2. **`reduce_scatter`'s identity.** Its identity must match `T_p` while its
-   result is `T_p` split by `C`, so issue #92's fix is needed there in a harder
-   form — and the shipped constraint must be retargeted from results to partials
-   (R11, §5).
-3. **The floordiv rule against a sticked multi-axis pattern**, once one is
-   measured. §7.4's three-axis concat has no sticked axis among its listed
-   axes, so it does not test it.
+**The hazard is silent, not loud.** A dim attribute that still names the old,
+unshifted axis index is a valid, distinct axis of the physical tensor, so
+R9/R12 pass and the op is silently wrong — it denotes a different axis than
+the one authored. The remedy needs no new mechanism: physicalization already
+knows the logical-to-physical axis mapping, so the pass that retypes the
+tensors rewrites the attributes in the same step, and the ops themselves stay
+layout-agnostic (§7.1).
+
+**What is still open.** R12's per-axis clause becomes a real multi-check once
+a sticked axis is listed, rather than the trivial single-axis case; a fix to
+`reduce_scatter`'s identity needs the same propagation treatment in a harder
+form, since its identity matches `T_p` while its result is `T_p` split by `C`
+(R11, §5); and the floordiv rule is untested against a sticked multi-axis
+pattern, since §7.3's measured three-axis concat has no sticked axis among its
+listed axes.
 
 ### 9.4 One thing unverified
 
@@ -3535,11 +3078,10 @@ so it is recorded here rather than asserted there.
 
 ### 9.5 Fused relayout is deferred
 
-Relayout stays a separate preceding op, and fusing it into the consuming
-computation is treated as a lowering concern rather than an op-surface one.
-Nothing in the measured set fuses one, so there is no evidence either way
-about what the surface would have to express; the question is recorded here
-so that the absence is deliberate rather than an oversight.
+Relayout stays a separate preceding op and fusing it into the consuming
+computation is treated as a lowering concern, deliberately rather than by
+oversight: nothing in the measured set fuses one, so there is no evidence
+either way about what the surface would have to express.
 
 ---
 
@@ -3555,27 +3097,27 @@ the other five delivery ops are new work, not revisions of existing ops.
 
 | Op | Status today | This design |
 |---|---|---|
-| `inter_tile_produce` | exists (`KTDP.td:107`) | already matches: carries `producer_tiles_per_group` and no consumer set, returns a future |
-| `inter_tile_reduce` | exists (`KTDP.td:165`) | already matches: consumes the future, carries `consumer_tiles_per_group` and a reducer region only |
+| `inter_tile_produce` | exists (`KTDP.td`) | already matches: carries `producer_tiles_per_group` and no consumer set, returns a future |
+| `inter_tile_reduce` | exists (`KTDP.td`) | already matches: consumes the future, carries `consumer_tiles_per_group` and a reducer region only |
 | `inter_tile_consume` | **not implemented** | new (§6.1) |
-| `inter_tile_reduce_scatter` | **not implemented** | new (§6.3) |
-| `inter_tile_gather` | **not implemented** | new (§6.4) |
-| `inter_tile_all_to_all` | **not implemented** | new (§6.5) |
-| `inter_tile_scatter` | **not implemented** | new (§6.6) |
+| `inter_tile_reduce_scatter` | **not implemented** | new (§6.5) |
+| `inter_tile_gather` | **not implemented** | new (§6.3) |
+| `inter_tile_all_to_all` | **not implemented** | new (§6.6) |
+| `inter_tile_scatter` | **not implemented** | new (§6.4) |
 
 `inter_tile_consume` and `inter_tile_reduce_scatter` appear in the current
-tree only as prose: `KTDP.td:70` names them as unbuilt future work, and
-`KTDPTypes.td:235` lists them among the delivery ops the future type is
+tree only as prose: `KTDP.td` names them as unbuilt future work, and
+`KTDPTypes.td` lists them among the delivery ops the future type is
 *intended* to serve. Neither has an op definition, so this document is a
 specification for five new ops rather than a restructuring of existing
 ones.
 
 Cross-checking against §7's census: of the five unbuilt ops, `gather`,
 `all_to_all`, `scatter` and `consume` are required by measured relayouts,
-while `reduce_scatter` is required by no measurement at all (§7.9).
+while `reduce_scatter` is required by no measurement at all (§7.7.2).
 
 **The `!ktdp.tile_future<(T), groups = #groups>` type** already exists
-(`KTDPTypes.td:231`) and is shared across all ops; its `#groups` parameter
+(`KTDPTypes.td`) and is shared across all ops; its `#groups` parameter
 carries the group set (§1.3).
 
 **The earlier single-op draft.** A `ktdp.inter_tile` op carrying producer
