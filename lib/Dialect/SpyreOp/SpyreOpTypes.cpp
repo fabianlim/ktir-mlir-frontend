@@ -18,6 +18,7 @@
 
 #include "ktir/Dialect/SpyreOp/SpyreOpTypes.h"
 
+#include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinDialect.h>
@@ -43,3 +44,14 @@ void SpyreOpDialect::registerTypes() {
 
 #define GET_TYPEDEF_CLASSES
 #include "ktir/Dialect/SpyreOp/SpyreOpTypes.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// DF16Type
+//===----------------------------------------------------------------------===//
+
+// FIXME: LLVM's APFloat has no 1-6-9 semantics, and `fltSemantics` cannot be
+// constructed outside APFloat.cpp. IEEE half is a placeholder of the right
+// width only: constants, folds and casts over df16 are computed as f16.
+const llvm::fltSemantics &DF16Type::getFloatSemantics() const {
+  return llvm::APFloat::IEEEhalf();
+}

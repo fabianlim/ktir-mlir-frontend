@@ -37,7 +37,7 @@ class SpyreOp_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def SpyreOp_DF16 : SpyreOp_Type<"DF16", "df16", [
-  VectorElementTypeInterface,
+  DeclareTypeInterfaceMethods<FloatTypeInterface, ["getFloatSemantics"]>,
   MemRefElementTypeInterface
 ]> {
   let summary = "IBM df16 float";
@@ -51,6 +51,9 @@ def SpyreOp_DF16 : SpyreOp_Type<"DF16", "df16", [
        |       ^ 6-bit exponent
        ^ sign bit
     ```
+
+    Implements `FloatTypeInterface`, so `arith` and `math` ops accept it as a
+    float element type.
   }];
 }
 
